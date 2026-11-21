@@ -1,17 +1,19 @@
 # GT Sales CRM — guide for AI agents and new sessions
 
-Read this first, then [docs/HANDOFF.md](docs/HANDOFF.md) (what is live, what
-waits for an owner step, what comes next and how, with the architecture map),
-[docs/PLAN.md](docs/PLAN.md) (decisions, phases) and [docs/ENV.md](docs/ENV.md)
-(every variable). Keep all three current when you change what they describe.
+Read this first, then [docs/HANDOFF.md](docs/HANDOFF.md) (where it runs, what
+is live, what waits for the owner, what comes next),
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (how it works: surfaces, data
+model, roles, website integration, domain rules),
+[docs/PLAN.md](docs/PLAN.md) (decisions in force) and
+[docs/ENV.md](docs/ENV.md) (every variable). Keep them current when you
+change what they describe; say a thing once and link to it.
 
 ## What this is
 
 One backend and one admin for every GT Sales website (Get Canada Sim,
-CanadaWide, more to come). Websites keep their own repositories and send leads
-to the backend with a per-site key; staff work every site from this admin.
-The code was copied from the Canadian Plans platform and pruned
-(`docs/PLAN.md` §4); its business data, brand and catalogue were not.
+CanadaWide, more to come). Websites keep their own repositories and send
+leads to the backend with a per-site key; staff work every site from this
+admin.
 
 | Path                                                       | Role                                                                                                                   |
 | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
@@ -21,10 +23,12 @@ The code was copied from the Canadian Plans platform and pruned
 | `packages/contracts`                                       | Zod request/response schemas, the endpoint registry, the generated OpenAPI document and the one typed client.          |
 | `packages/types`                                           | Value lists (roles, permissions, lead statuses, scopes) that schema, contracts and apps all derive from.               |
 | `packages/adapters`                                        | Object store (S3 protocol), Resend email, alerts, error tracking, Umami sink.                                          |
-| `jobs`                                                     | Outbox job types, handlers and runner.                                                                                 |
+| `jobs`                                                     | Outbox job types, handlers and runner; the backup, monitor, retention and restore CLIs.                                |
 | `packages/ui`, `packages/config`, `packages/observability` | shadcn components; tsconfig/eslint/prettier/vitest/playwright bases; logging.                                          |
 
 ## Rules that are not negotiable
+
+The numbers are cited from code comments ("AGENTS.md rule 7"); keep them.
 
 1. **Only the backend talks to Postgres**, as the `app_runtime` role
    (`NOBYPASSRLS`, owns nothing) over the Supabase transaction-mode pooler.
@@ -35,44 +39,40 @@ The code was copied from the Canadian Plans platform and pruned
    `withTenantTx`. A query that forgets its tenant sees nothing. `contacts` is
    the one documented global table (merge by email); the backend exposes a
    contact only through a lead of the current site.
-3. **Hand-written SQL lives in `drizzle/0001_runtime_functions.sql`** (grants,
-   FORCE RLS, SECURITY DEFINER bootstrap functions, triggers). Adding a table
-   means a generated migration **and** its grants + FORCE RLS in a new custom
-   migration, and a seed/test touching it. `drizzle-kit generate --custom` makes
-   the empty file. Never edit an applied migration.
+3. **Hand-written SQL lives in migrations** (`drizzle/0001_runtime_functions.sql`
+   and the later custom ones: grants, FORCE RLS, SECURITY DEFINER functions,
+   triggers). Adding a table means a generated migration **and** its grants +
+   FORCE RLS in a custom migration (`drizzle-kit generate --custom` makes the
+   empty file), and a seed/test touching it. Never edit an applied migration.
 4. **Staff authorization is per action** (`apps/backend/src/staff/authorization.ts`).
    Roles: `owner`, `leads`, `orders`, `partners`, `finance`, `content`,
-   `viewer`. A privileged action needs only the role or per-member permission that
-   grants it; there is no authenticator-code step (owner decision, 25 Oct 2026).
-   Contact details, a lead's form, notes and tasks (and search, which would
-   reveal them) are shown only to roles with `lead.manage`, `order.manage` or
-   `financial.read`; every change to a lead needs `lead.manage`.
+   `viewer`. A privileged action needs only the role or per-member permission
+   that grants it; there is no authenticator-code step. Contact details, a
+   lead's form, notes and tasks (and search, which would reveal them) are
+   shown only to roles with `lead.manage`, `order.manage` or `financial.read`;
+   every change to a lead needs `lead.manage`.
 5. **Websites authenticate with a service credential** (`gtsk_…`, hashed at
-   rest, scoped, revocable; its row id is the actor for its writes) and prove a
-   visitor owns a draft with a draft grant (`gtdg_…`). They can create and
-   resume their own leads and upload documents against them, nothing else.
-   A key also names the lead types it may send
-   (`service_credentials.lead_types`, migration 0043, issue #84): a create or
-   a draft save of any other type is `403 lead_type_not_permitted` and writes
-   nothing (`website/credential-schema.ts`, checked inside the write's own
-   transaction in `leads/store.ts`).
+   rest, scoped, revocable; its row id is the actor for its writes) and prove
+   a visitor owns a draft with a draft grant (`gtdg_…`). They can create and
+   resume their own leads and upload documents against them, nothing else. A
+   key also names the lead types it may send
+   (`service_credentials.lead_types`): a create or a draft save of any other
+   type is `403 lead_type_not_permitted` and writes nothing.
 6. **Side effects go through the outbox** (`app.outbox_jobs`), never straight
    from a request handler: emails, analytics, alerts. Dedupe on
    `(workspace, job_type, dedupe_key)`. A mail the provider refuses outright
-   (Resend's HTTP 429) is retried with backoff under the same idempotency key
-   up to the attempt limit; a timeout or a 5xx may have been sent, so it ends
-   `uncertain` and waits for staff.
-7. **No PII in logs, audit `before`/`after` may be redacted to null and never
-   rewritten, email tables store a keyed `contact_hash`, never the address.**
-   A mail to a lead's customer keeps its subject and plain text in its
-   timeline entry's `body` (owner decision, 13 Nov 2026, for the lead's Mail
-   tab; `email/kept-text.ts`). It sits with the notes, so erasing a customer's
-   data nulls it the same way; the address is still never stored. A
-   customer's draft save keeps the values they changed in its timeline
-   entry's `body` as well (owner decision, 21 Nov 2026, issue #87;
-   `leads/draft-changes.ts`): erased the same way, never in the entry's
-   `data`, a log or an audit event, and never a sensitive field's or an
-   unmodelled key's value.
+   (HTTP 429) is retried with backoff under the same idempotency key; a
+   timeout or a 5xx may have been sent, so it ends `uncertain` and waits for
+   staff.
+7. **No PII in logs or URLs; audit `before`/`after` may be redacted to null
+   and never rewritten; email tables store a keyed `contact_hash`, never the
+   address.** Customer text is kept in exactly one kind of place, a timeline
+   entry's `body`, which a customer's erasure nulls: a note, a sent mail's
+   subject and plain text (`email/kept-text.ts`), and the values a customer
+   changed in a draft save (`leads/draft-changes.ts`; never a sensitive
+   field's or an unmodelled key's value). Never in the entry's `data`, a log
+   or an audit event. The leads search (a name, email or phone) travels in a
+   request body, never in a URL.
 8. **No secrets in the repo.** Keys, passwords and customer data live in
    Railway/Vercel/Supabase. Treat the repository as public.
 9. **Demo-proof tests.** Integration suites run against a disposable database
@@ -86,6 +86,7 @@ The code was copied from the Canadian Plans platform and pruned
 pnpm install
 pnpm run typecheck && pnpm run lint && pnpm run format   # must pass before a commit
 pnpm run test                                            # unit + integration (integration needs the env below)
+pnpm run build                                           # every package and app
 pnpm run test:tooling                                    # scripts/*.test.mjs
 pnpm run test:e2e                                        # admin shell browser checks (build the admin first)
 pnpm --filter admin test:e2e:leads                       # lead journeys against the real backend (needs Postgres)
@@ -98,470 +99,165 @@ DB_TEST_ALLOW_DESTRUCTIVE=1 MIGRATION_DATABASE_SSL_MODE=disable`, plus for the
 backend `DATABASE_URL=postgres://app_runtime:local_ci_runtime_password@localhost:5432/crm_test
 DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
 (`.github/workflows/ci.yml`) runs exactly this on every PR and on `main`.
+The lead journeys need a local `gt_sales_crm_e2e_test` database.
+
+Local notes: the dev container's Postgres 16 stops on worker restarts
+(`pg_ctlcluster 16 main start`; the `postgres` password there is `postgres`).
+After deleting an admin route, delete `apps/admin/.next` before the
+typecheck (it reads stale generated types).
+
+## How to change things
+
+- **Contracts**: regenerate `docs/api/openapi.json` (command above).
+- **Schema**: edit `packages/db/src/schema.ts`, generate the migration, add
+  the custom companion (rule 3). Migrations are applied to the hosted
+  project by hand, never by a deploy, and recorded in
+  [docs/RUNBOOKS/database.md](docs/RUNBOOKS/database.md); until one is
+  applied, list it in HANDOFF §3. Where the deploy and the migration may land
+  in either order, add a catalogue probe (`*-schema.ts`) rather than assume
+  the column.
+- **A variable**: document it in docs/ENV.md.
+- **A database or operations procedure**: its runbook in `docs/RUNBOOKS/`.
 
 ## Where things live
 
-- Lead intake and store: `apps/backend/src/leads/` (`store.ts` does the contact
-  merge and lead-type handling, `types.ts` the registry and its submit
-  checks, `site-counter.ts` a site's running numbers such as the next order
-  number), routes in `src/routes/website.ts`.
-- Staff lead work (detail, stage, assignee, notes, tasks, board, archive):
-  `src/leads/work-store.ts` for writes, `src/leads/staff-queries.ts` for reads
-  (plain SQL with explicit aliases; see the comment at its top);
-  `src/leads/task-schema.ts` says whether the database takes plain tasks
-  (migration 0038).
-- Leads export to Excel: `apps/backend/src/leads/export/` (`store.ts` the
-  read, the row cap and the audit event, `cells.ts` each value's type and the
-  formula-injection guard, `workbook.ts` the `.xlsx`) with the route in
-  `src/routes/lead-export.ts` (action `lead.export`); the fields, groups and
-  request in `packages/contracts/src/lead-export.ts`; the dialog in
-  `apps/admin/src/components/leads/lead-export-dialog.tsx` and the row
-  selection in `leads-table.tsx` (docs/HANDOFF.md §2.3).
-- Staff routes (sites, access, profile, leads, board, tasks, members, jobs,
-  credentials, files): `src/routes/staff.ts`.
-- Documents: `src/documents/` (signed upload intent → finalize with
-  signature verification → attach; staff review and download links;
-  `object-deletions.ts` the durable record of storage copies to delete and
-  the `document_cleanup` sweep that deletes them, migration 0045).
-- Scheduler: `src/scheduler.ts` (`outbox`, `document_cleanup`,
-  `data_retention`, `automations`, and `intake_check` when
-  `INTAKE_CHECK_WORKSPACE_ID` is set), identities in
-  `src/machines/registry.ts`.
-- Site properties and record layouts: `apps/backend/src/properties/`
-  (`store.ts` for definitions, tombstones and layouts, `catalog.ts` for the
-  per-request catalogue) with routes in `src/routes/properties.ts`; staff
-  private saved views in `src/views/store.ts` with routes in
-  `src/routes/views.ts`.
-- Plans and order details: `apps/backend/src/plans/` (`store.ts` for the
-  site's plans and the freeze, `options.ts` for the catalogue's plan options)
-  with staff routes in `src/routes/plans.ts`, the website's plan list in
-  `src/routes/website.ts` and an order lead's details in `src/leads/order.ts`;
-  contracts in `packages/contracts/src/plans.ts`.
-- Stage moves, the documents check and website retries:
-  `apps/backend/src/leads/stage-move.ts` (which moves a type allows and what a
-  move into a stage asks first), `documents-check.ts` (the required-documents
-  check) and `idempotency.ts` (a website submission's key and request
-  fingerprint). The staff `PATCH` that uses the first two is in
-  `src/routes/staff.ts` and the write in `src/leads/work-store.ts`; the website
-  header is read in `src/routes/website.ts`.
-- Customer email: `apps/backend/src/email/` (`senders.ts` resolves a site's
-  sender, `settings-store.ts` holds its settings and templates, `markup.ts` and
-  `layout.ts` are the template language and the one shared layout, `compose.ts`
-  and `queue.ts` render a mail and queue it) with the staff routes in
-  `src/routes/email-settings.ts`; contracts in
-  `packages/contracts/src/customer-email.ts`.
-- Customer order tracking: `apps/backend/src/tracking/` (`secrets.ts` the
-  keyed hashes, the code and the signed grant, `store.ts` the challenges and
-  the customer's order list, `service.ts` the code request, verify and grant
-  check, `delivery.ts` the tracking code mail's outbox handler,
-  `change-requests.ts` the customer's change requests, their held documents
-  and staff's approve and reject) with the website routes in
-  `src/routes/tracking.ts` and the two staff decision routes in
-  `src/routes/staff.ts`; contracts in `packages/contracts/src/tracking.ts`;
-  the lead page's card in `apps/admin/src/components/leads/change-request-card.tsx`.
-- Automation flows: `apps/backend/src/automations/` (`engine.ts` fires the
-  flows a write sets off inside its transaction, `conditions.ts` and
-  `actions.ts` the conditions and step executors, `timers.ts` and `tick.ts`
-  the time triggers, waits and the scheduler's `automations` task,
-  `staff-notification.ts` the notify step's mail, `flow-store.ts` the flows,
-  drafts, activation, runs and the editor catalogue, `site.ts` the site
-  snapshot a flow is checked against, `records.ts` the run and step records,
-  `run.ts` the lead reader) with the staff routes in
-  `src/routes/automations.ts`; site-made templates in
-  `src/email/settings-store.ts` and `src/routes/email-settings.ts`; contracts
-  in `packages/contracts/src/{automation-keys,automation-flows,automation-api}.ts`
-  (the built-ins' labels and phase 4 triggers stay in `automations.ts`).
-- Admin pages: `apps/admin/src/app/w/[workspace]/{dashboard,leads,leads/[leadId],tasks,mail,chat,analytics,automations,automations/[key],settings}`
-  (Settings → Fields and layouts at `settings/properties`, Settings → Email at
-  `settings/email`); lead screens in `src/components/leads/` (the stage-move
-  dialog is `stage-move-dialog.tsx`); the CRM filter chip, menus and side panel
-  in `src/components/crm/` (tokens in `src/app/crm-theme.css`); adding a task is
-  one composer, `src/components/tasks/task-composer.tsx` (name, due date,
-  assignee and optional lead chips, used by My tasks, each board column and the
-  lead page), with `Calendar` and `Command` in `packages/ui`;
-  the Shadcnblocks-inspired admin shell (docs/PLAN.md §1, reuse note) supports
-  light/dark mode via `theme-toggle.tsx`, Ctrl/Cmd K navigation via
-  `quick-navigation.tsx`, and contextual settings links via
-  `settings-navigation.tsx`. The menus are data in `nav-items.ts` (main sidebar groups: Dashboard and Ask AI, Work, Insights, Setup; the top bar and Ctrl/Cmd K read them too) and `settings-nav-items.ts` (Settings groups: Workspace, Sales, Communication, AI, System; each item keeps its own visibility rule and an empty group is not drawn). Documents are reviewed on each lead's page; there is no Documents page or review-queue route (Ask AI reads the queue store directly);
-  property rendering, editing and the settings screens in
-  `src/components/properties/`; Settings → Plans in `src/components/plans/`
-  (`settings/plans`, with plan properties at `settings/plans/properties`);
-  Settings → Email in `src/components/email/` (including New template and
-  archive/restore for site-made templates); the Automations list, visual canvas
-  editor (`src/components/automations/canvas/`: `layout-flow.ts` auto-layout,
-  `flow-canvas.tsx` `@xyflow/react` board, `step-side-panel.tsx` right-hand
-  step/trigger editor, `condition-builder.tsx` and `draft-mutations.ts`),
-  accessible `flow-list-view.tsx` editor toggle (same add/edit controls, with
-  within-path movement in the step panel) and expandable Runs tab in
-  `src/components/automations/` (`flow-words.ts` puts a flow and its step
-  outcomes in words); API client
-  `apps/admin/src/lib/api.ts`.
-- Error messages in the admin: `apps/admin/src/lib/error-text.ts`.
-  `describeError(error, 'save the change')` turns any failure (a
-  `BackendError`, a dropped connection, a timeout) into a plain sentence that
-  says what to do next; `describeInvalid` names the field and the limit for a
-  form's own zod check. A screen never shows a raw error code; a server
-  failure may end with `(Ref: <8 chars of the request id>)`. `useResource`
-  keeps the original error as `failure` for it. A CRM that does not answer
-  the workspace check shows "The CRM is not responding" with Try again
-  (`protected-workspace-shell.tsx`), never the denied page.
-- Source report: `apps/backend/src/reports/store.ts` (the one SQL statement,
-  `sourceLabelSql` and `shapeSourceReport`) with the route in
-  `src/routes/reports.ts`; contracts in `packages/contracts/src/reports.ts`;
-  in the admin it is the Dashboard's sources card
-  (`src/components/reports/source-report.tsx`, opened by
-  `/dashboard?report=sources`; the old `reports` and `reports/sources`
-  routes redirect there), its periods in `src/lib/stats-windows.ts`.
-- Analytics dashboard: `apps/backend/src/analytics/store.ts` (the one
-  aggregate statement) with the route in `src/routes/analytics.ts`; contracts
-  in `packages/contracts/src/analytics.ts`; the admin screen
-  `apps/admin/src/components/dashboard.tsx` with its filter bar, URL state and
-  charts in `src/components/analytics/`. Money figures need `revenue.view`
-  (owner only) and are left out of responses for everyone else.
-- Ask AI's reads and cards (docs/design/ai-assistant.md, ai-actions.md):
-  `apps/backend/src/ai/` (`tools.ts` the core reads, `read-tools.ts` the
-  smaller reads, `lead-record.ts` a lead's values, `record-text.ts` the
-  cleaning of every record string the model is given, `actions.ts` the card
-  tools, `card-safeguards.ts` the card table, mention check and daily caps,
-  `card-store.ts` the wider cards' previews and the lead edit's write),
-  `src/staff/lead-visibility.ts` the one rule for details and money, and
-  the chat, revise and confirm routes in `src/routes/ai-assistant.ts`.
-- Ask AI's saved chat (docs/design/ai-chat.md): `apps/backend/src/ai/`
-  (`conversation-store.ts` a member's conversations and messages,
-  `attachment-store.ts` and `attachments.ts` the files' rows, upload,
-  verification, links and sweep, `attachment-budget.ts` the memory bound,
-  `usage-store.ts` the owner's usage and `usage-cost.ts` its approximate cost, `chat-schema.ts` whether 0034–0037 are
-  applied, `chat-factory.ts` the wiring) with the routes in
-  `src/routes/ai-conversations.ts`, mounted from `src/routes/ai-assistant.ts`,
-  which runs a stored turn; contracts in
-  `packages/contracts/src/ai-conversations.ts` and `AI_CHAT_LIMITS` in
-  `ai-assistant.ts`; the page `apps/admin/src/app/w/[workspace]/chat/` with
-  `src/components/ai/` (`chat-screen.tsx`, `conversation-list.tsx`,
-  `chat-thread.tsx`, `chat-composer.tsx`, `attachment-*`; state in
-  `assistant-provider.tsx`); Settings → AI usage at `settings/ai-usage` with
-  `src/components/ai-usage/`.
-- Ask AI's model choice (docs/RUNBOOKS/ai-assistant.md §14): `apps/backend/src/ai/`
-  (`model-catalogue.ts` the Gateway catalogue and its cache,
-  `model-settings-store.ts` a site's `app.ai_model_settings` row and its audit,
-  `model-schema.ts` whether 0040 is applied; `engine.ts` serves a site's model
-  with `has: ['tool-use']`) with the owner's routes in `src/routes/ai-models.ts`
-  and the per-turn check in `src/routes/ai-assistant.ts`; contracts in
-  `packages/contracts/src/ai-models.ts`; Settings → AI models at
-  `settings/ai-models` with `src/components/ai-models/`, and the composer's
-  menu in `src/components/ai/model-control.tsx`.
-- Intake check: `apps/backend/src/intake-check/` (`check.ts` the run and its
-  steps, `store.ts` the test site's reads and deletes, `alert-rule.ts` when
-  the owner hears about it), the manual run in `src/routes/intake-check.ts`;
-  the scheduler's `intake_check` task in `src/scheduler.ts`; the runbook
-  `docs/RUNBOOKS/intake-check.md` and its paste file
-  `docs/RUNBOOKS/manual/intake-check-site.sql`.
-- Historical CanadaWide import: `packages/db/sql/canadawide-legacy-import.sql`
-  (docs/RUNBOOKS/legacy-import.md).
-- Decisions, rulings and review findings the code cites by name (D1, R4, O9,
-  P7, L-3, ENG-5, …): `docs/PLAN.md` §11.
+Backend paths are under `apps/backend/src/`, admin paths under
+`apps/admin/src/`, contracts under `packages/contracts/src/`.
+
+- **App wiring**: `app.ts` (middleware, mounts), `server.ts`, `scheduler.ts`,
+  `machines/registry.ts` (machine identities), `auth/session.ts`, `staff/`
+  (authorization, `lead-visibility.ts`). Contracts and admin: `endpoints.ts`;
+  admin `lib/api.ts`, `lib/use-resource.ts`.
+- **Lead intake**: `leads/store.ts` (contact merge, lead types),
+  `leads/types.ts` (registry, submit checks, closing stages),
+  `leads/site-counter.ts`, `leads/idempotency.ts`, `leads/draft-changes.ts`,
+  `website/` (credential auth, limits, bot check), `routes/website.ts`.
+  Contracts and admin: `leads.ts`, `lead-types.ts`, `website-auth.ts`.
+- **Staff lead work**: `leads/work-store.ts` (writes),
+  `leads/staff-queries.ts` (reads: plain SQL with explicit aliases),
+  `leads/stage-move.ts`, `leads/documents-check.ts`, `leads/order.ts`,
+  `leads/task-schema.ts`, `routes/staff.ts`. Contracts and admin:
+  `workspace-leads.ts`, `lead-work.ts`; admin `components/leads/`
+  (`stage-move-dialog.tsx`, `change-request-card.tsx`),
+  `components/tasks/task-composer.tsx`.
+- **Export to Excel**: `leads/export/` (`store.ts`, `cells.ts` with the
+  formula-injection guard, `workbook.ts`), `routes/lead-export.ts`. Contracts
+  and admin: `lead-export.ts`; admin
+  `components/leads/lead-export-dialog.tsx`.
+- **Properties, layouts, views**: `properties/` (`store.ts`, `catalog.ts`),
+  `routes/properties.ts`, `views/store.ts`, `routes/views.ts`. Contracts and
+  admin: `lead-properties.ts`, `properties.ts`, `property-layouts.ts`,
+  `saved-views.ts`, `custom-values.ts`, `lead-fields.ts`; admin
+  `components/properties/`, `settings/properties`.
+- **Plans and order details**: `plans/` (`store.ts`, `options.ts`),
+  `routes/plans.ts`. Contracts and admin: `plans.ts`; admin
+  `components/plans/`, `settings/plans`.
+- **Documents**: `documents/` (signed upload intent → finalize with signature
+  verification → attach; review and download links; `object-deletions.ts` and
+  the `document_cleanup` sweep).
+- **Customer email**: `email/` (`senders.ts`, `settings-store.ts`,
+  `markup.ts`, `layout.ts`, `compose.ts`, `queue.ts`, `kept-text.ts`,
+  `inbound.ts`, `reply-address.ts`), `routes/email-settings.ts`,
+  `routes/email.ts`. Contracts and admin: `customer-email.ts`; admin
+  `components/email/`, `components/mail/`, `settings/email`.
+- **Customer tracking**: `tracking/` (`secrets.ts`, `store.ts`, `service.ts`,
+  `delivery.ts`, `change-requests.ts`), `routes/tracking.ts`. Contracts and
+  admin: `tracking.ts`.
+- **Automation flows**: `automations/` (`engine.ts`, `conditions.ts`,
+  `actions.ts`, `timers.ts`, `tick.ts`, `staff-notification.ts`,
+  `flow-store.ts`, `site.ts`, `records.ts`, `run.ts`),
+  `routes/automations.ts`. Contracts and admin: `automation-keys.ts`,
+  `automation-flows.ts`, `automation-api.ts`, `automations.ts`; admin
+  `components/automations/` (`canvas/`, `flow-list-view.tsx`,
+  `flow-words.ts`).
+- **Dashboard and reports**: `analytics/store.ts`,
+  `analytics/web-analytics.ts`, `routes/analytics.ts`, `reports/store.ts`,
+  `routes/reports.ts`. Contracts and admin: `analytics.ts`, `reports.ts`;
+  admin `components/dashboard.tsx`, `components/analytics/`,
+  `components/reports/source-report.tsx`, `lib/stats-windows.ts`.
+- **Ask AI: reads and cards**: `ai/` (`tools.ts`, `read-tools.ts`,
+  `lead-record.ts`, `record-text.ts`, `actions.ts`, `card-safeguards.ts`,
+  `card-store.ts`, `engine.ts`, `prompt.ts`), `routes/ai-assistant.ts`,
+  `routes/ai-automations.ts`. Contracts and admin: `ai-assistant.ts`; admin
+  `components/ai/` (`assistant-provider.tsx`).
+- **Ask AI: saved chat, usage, models**: `ai/` (`conversation-store.ts`,
+  `attachment-store.ts`, `attachments.ts`, `attachment-budget.ts`,
+  `usage-store.ts`, `usage-cost.ts`, `chat-schema.ts`, `chat-factory.ts`,
+  `model-catalogue.ts`, `model-settings-store.ts`, `model-schema.ts`),
+  `routes/ai-conversations.ts`, `routes/ai-models.ts`. Contracts and admin:
+  `ai-conversations.ts`, `ai-models.ts`; admin `app/w/[workspace]/chat/`,
+  `components/ai/` (`chat-screen.tsx`, `model-control.tsx`),
+  `components/ai-usage/`, `components/ai-models/`.
+- **Intake check**: `intake-check/` (`check.ts`, `store.ts`, `alert-rule.ts`),
+  `routes/intake-check.ts`. Runbook `docs/RUNBOOKS/intake-check.md`, paste
+  file `docs/RUNBOOKS/manual/intake-check-site.sql`.
+- **Retention and erasure**: `retention/` (`abandoned-leads.ts`, `operational.ts`).
+
+Also:
+
+- **Admin pages**:
+  `apps/admin/src/app/w/[workspace]/{dashboard,leads,leads/[leadId],tasks,mail,chat,analytics,automations,automations/[key],settings/*}`.
+  The menus are data: `components/nav-items.ts` (sidebar, top bar and
+  Ctrl/Cmd K) and `settings-nav-items.ts`. The CRM filter chips, menus and
+  side panel are in `components/crm/` (tokens in `app/crm-theme.css`).
+  Documents are reviewed on each lead's page; there is no Documents page.
+- **Error messages in the admin**: `lib/error-text.ts`.
+  `describeError(error, 'save the change')` turns any failure into a plain
+  sentence that says what to do next; `describeInvalid` names the field and
+  the limit. A screen never shows a raw error code.
+- **The leads search** is kept in page state (`lib/lead-search-handoff.ts`
+  carries it from Ctrl/Cmd K) and sent in the body of `POST …/leads/search`.
+- **The admin's CSP**: a per-request nonce in `src/proxy.ts` and `lib/csp.ts`.
+- **Legacy imports**: `packages/db/sql/` (docs/RUNBOOKS/legacy-import.md).
+- **Tests**: `apps/backend/tests/` (unit, `*.integration.test.ts`,
+  `isolation.spec.ts` the tenant-isolation gate, `e2e/harness.ts`),
+  `apps/admin/e2e/` (README explains the compiled-out test session seam).
+- **Decisions and rulings the code cites by name** (D1, R4, O9, P7, L-3,
+  ENG-5, …): docs/PLAN.md §11.
 
 ## Vocabulary
 
-`workspace` in code = **Site** in the UI = one website. `lead_type` names the
-form a lead came from (`sim_order`, `internet`, `mobility`,
-`partner_application`, `contact_message`). A lead's `status` is the form's
-lifecycle (`incomplete` → `submitted`); its `stage` is where staff are working
-it (`new`, `contacted`, `won`…). Labels and stages per type live in one place,
-`leadTypeCatalog` in `packages/contracts/src/lead-types.ts`; the backend
-registry (`apps/backend/src/leads/types.ts`) adds payload schemas and intake
-rules. Form property definitions live once in `leadPropertyCatalog` in
-`packages/contracts/src/lead-properties.ts` (paired with each lead type's field
-list in `leadTypeProperties`), and `leadFieldCatalog` in
-`packages/contracts/src/lead-fields.ts` derives from it.
+The full domain rules are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §6.
 
-A **property** is one field of a lead, built-in or custom. Built-in properties
-are the form fields defined in code (`leadPropertyCatalog`); a site may
-relabel or hide one through a row in `app.properties`. A **custom property** is
-a property staff of one site add under Settings → Fields and layouts (owner only): its
-key is generated from the label as `custom_<snake>`, its kind is one of
-`text`, `longText`, `number`, `money` (integer cents, CAD), `date`, `yesNo`,
-`choice`, `email`, `phone` or `url`, and its values live in
-`leads.custom_values`. A deleted custom property leaves a tombstone so its key
-is never reused. The **catalogue** is the set of properties one site resolves
-to (code built-ins plus its rows), built by `buildPropertyCatalog` in
-`packages/contracts/src/properties.ts`; `codePropertyCatalog` is the same with
-no rows. Every list, board, filter, sort, column and record screen reads the
-catalogue, never the code list directly. A **layout** orders the sections and
-property keys of the lead record for one site and lead type
-(`app.property_layouts`). A **saved view** is one staff member's private copy
-of the leads inbox state (layout, type, stage, assignee, archive, due today,
-filters, sort, property columns and hidden columns), never the free-text search or the page. The free-text search is in no URL at all (#83): the inbox keeps it in page state (`apps/admin/src/lib/lead-search-handoff.ts` carries it from Ctrl/Cmd K), and it reaches the backend in the body of `POST …/leads/search` or `…/leads/board/search`, never as `?q=`. `app.saved_views` is
-visible only to its owner, at most 30 per person per site.
-
-A **plan** is something a site sells, for one order lead type (`sim_order`,
-`internet` or `mobility`): a name, a price in cents (CAD), a billing period
-(`one_time`, `month`, `30_days`, `90_days` or `year`), whether payment is
-required, the documents it needs, custom values and a position, in
-`app.plans`. A plan is never deleted; `active` off hides it. Its extra
-details are **plan properties** (`?object=plan` on the property routes), each
-with a _Show on website_ switch (`websiteVisible`). The **order details** of an
-order lead (`leads.order_details`) are its plan link (`planId`), the **frozen
-plan**, `quantity` (1–99), **payment status** (`not_needed`, `pending`,
-`paid`) and **carrier commission** (`not_yet`, `invoiced`, `received`,
-`clawback`). The frozen plan is a snapshot of the plan taken when the website
-submits the lead and again whenever staff change the plan, so a later price or
-name change never rewrites an order already taken; the website sends a plan id
-and a quantity, never a price. The order details are properties too: a third
-storage, `order`, beside `form` and `custom`. Payment and the carrier's
-commission are order details, not stages: `sim_order` has no `paid` or
-`invoiced` stage and its form has no `commissionStatus`. To **archive** a lead
-is to soft-delete it (`deleted_at`); it can be restored. This replaces the word
-"trash" in the admin, but `/trash` routes, `view=trash` and the `trash=1` URL
-parameter are still accepted as aliases.
-
-An **allowed move** is a stage a lead may be moved to from where it is
-(`moves` in `leadTypeCatalog`, read through `allowedStageMoves`; `isStageMoveAllowed`
-checks one). Every type allows any other listed stage except `sim_order`, whose
-path is `incomplete` → `pending` → `verified` → `delivered` → `activated` →
-`completed`, with `on_hold` and `cancelled` off to the side; a lead at a stage
-its type no longer lists may move to any listed one. A **gate** is what a move
-into a stage asks first (`gates`, read through `stageGates`): `dispatch` (a
-courier), `activation` (an activation date) and `documents` (the required
-documents approved). `sim_order` gates `delivered` with dispatch + documents
-and `activated` with activation + documents; `mobility` gates `activated` with
-activation + documents. `planStageMove` in `leads/stage-move.ts` decides a move.
-The **dispatch details** (`courier`, `trackingNumber`, `dispatchedAt`) and the
-**activation details** (`activatedAt`, `activationNumber`, `activationAccount`)
-are six more built-in order properties in `leads.order_details`; a move that
-needs a date and was given none uses today in `America/Toronto`. The timeline
-and audit name these keys, never their values. The **documents check**
-(`leads/documents-check.ts`) needs every document type in the order's frozen
-plan's `requiredDocuments` to have a current file on the lead whose latest
-review is `approved`; it is derived on every move, never stored, and a lead
-with no frozen plan requires nothing. The **override** moves an order on
-without them: action `order.override` (the roles `owner` and `orders`; no
-individual permission grants it) and a required reason of 1–2000 characters
-(`documentsOverrideReason`), recorded as a `documents_override` timeline entry
-and a `lead.documents_overridden` audit. Moving a stage still needs
-`lead.manage`, so in practice the override is for the owner or a member with the
-Leads and Orders roles. An **idempotency key** is the optional
-`Idempotency-Key` header a website sends when it creates or submits a lead so a
-retry never makes a second one (`app.idempotency_keys`, scope
-`lead_submission`): the key is stored as a SHA-256 hash with a fingerprint of the
-request, a retry within 24 hours returns the first lead marked `replayed`, the
-same key with another body is `idempotency_conflict`, and rows are pruned after
-7 days. A website may also send the lead's id (`leadId` on the create): the
-lead is created under it, and an id any lead already has is `409
-lead_id_taken` (CanadaWide does, so its intake fallback copy and a late CRM
-save are one lead, audit CW-B1).
-
-An **order number** is a SIM order's `MS-<n>`, kept as the lead's
-`externalRef` and returned on every website create and save
-(`lead.externalRef`). An imported order keeps its old `order_no`; a new
-`sim_order` created with no `externalRef` takes the next number from the
-site's counter `sim_order_ref` in `app.site_counters`
-(`nextSiteNumber`, advanced in the create's own transaction after the
-idempotency claim and the order check, so a replay or a refused create takes
-none). Unseeded, the counter starts after the site's highest imported
-`MS-<n>`; on switch day it is seeded past the old checkout's last number
-(`docs/RUNBOOKS/manual/gcs-switch-day.sql`) and it only ever goes up. It
-never issues a number a lead already holds: a counter left behind the site's
-highest `MS-<n>` jumps past it (the upsert takes the greater of the next
-value and that highest plus 1); a number a concurrent import takes in the
-same moment answers `409 external_ref_taken` and logs
-`site_counter_collision` with ids only. A website that sends its own
-`externalRef` keeps it as sent and takes no number (one already held is
-`409 external_ref_taken` too). A `sim_order` draft may be partial and stays
-at stage `incomplete`; its submission needs the contact's name and email, a
-plan (`order.planId`) and `delivery` (`esim`, or `pickup` with a shipping
-address), else `400 validation_error` with `details.field` `contact`,
-`order` or `form` (the registry's `submitCheck`). Submitted (on the create
-or the save that submits the draft), a SIM order still at `incomplete`
-moves to `pending` in the same transaction (`submittedLeadStage`), with
-`stage` in the audit and a `system` `submitted` timeline entry by the
-website's credential. Other lead types stay at their first stage. A
-submission fires the `lead_submitted` flows first and then counts as
-entering the stage the lead stands in (Pending for a SIM order, the first
-stage for the others), so the `stage_entered` flows of that stage fire after
-them (spec ruling R4). A **rescued checkout** counts as submitted for every
-lead type (owner decisions O9 and O12): the first staff stage move of an
-incomplete lead marks it submitted, freezes its plan and fires the submitted
-and stage flows; the customer can then no longer finish that checkout
-(O13). A move of such a lead into a closing stage (`isClosingStage` in
-`leads/types.ts`: a SIM order's Cancelled, internet Lost and
-Non-serviceable address, mobility Lost, a partner application's Declined, a
-contact message's Closed) is no rescue: the lead stays unsubmitted, nothing is
-frozen and no flow fires (controller ruling, 2026-10-31). If the customer then
-submits that draft it is a fresh submission: a SIM order moves to Pending and
-every other type back to its first stage, with the `submitted` timeline entry
-and `stage` in the audit, and the flows of that stage fire, never the closing
-stage's.
-
-**Email settings** are a site's sender and look (`app.workspace_email_settings`,
-Settings → Email): from name and address, reply-to, logo, brand colour, footer,
-site address, **style** (`classic`, the Get Canada Sim website's look and the
-default, or `hero`, the CanadaWide website's brand-colour header band; one
-layout, `email/layout.ts`, draws both) and the hero style's **accent colour**
-(its status pill; null is a tint of the brand). A **template** is the current copy of one of nine emails
-(`tracking_code`, `order_received`, `information_needed`, `dispatched`,
-`activated`, `cancelled`, `sim_number_ready`, `change_approved`,
-`change_rejected`; `app.email_templates`): a subject,
-a body and a **version**, content only, so a template never says whether it is
-sent. Every save is a new version in the append-only
-`app.email_template_versions` (`expectedVersion` guards a concurrent save,
-version 0 is the starter text that was never saved), and a sent mail records the
-version it was rendered from in `email_messages.template_version`. A template is
-written in a small markup (`email/markup.ts`: paragraphs, `**bold**`, links, one
-`[button: Label](url)`, and the badge, progress, heading, details, highlighted
-box, code box and steps blocks) with **fill-ins** in braces, such as `{first name}`: the
-list is `EMAIL_FILL_IN_KEYS` and each template may use only some
-(`fillInsForTemplate`). A misspelt or disallowed fill-in is refused when the
-template is saved. The backend renders a mail when it queues it, so the outbox
-job (`lead_customer_email`) only sends it; the tracking code mail is the one
-exception (below). A site that has not saved its email settings sends no
-customer email at all (`no_sender`). An **always-sent email** is one of the
-three that no automation rule controls (`ALWAYS_SENT_TEMPLATES`):
-`tracking_code`, sent whenever the site has saved email settings, and
-`change_approved` and `change_rejected`, queued in the staff decision's own
-transaction; Settings → Email says so beside each.
-
-**Customer order tracking** is how a customer of a site follows and changes
-their own orders (Get Canada Sim's `/track`), through the website's key with
-the `tracking` scope. A **tracking code** is the six digits a customer gets by
-email for one address on one site; its **challenge** is the row that holds
-the code's keyed hash (`app.tracking_challenges`: 10 minutes, 5 tries, a new
-request replaces the pending one, pruned a day after it expires). The code
-mail is the outbox job `tracking_code_email`, which carries the code sealed
-and renders it only at send time; when the job ends its payload is scrubbed
-to `{ challengeId }`. A verified code gives a **grant**: a signed token sent
-back as `X-Customer-Grant`, valid 30 minutes, bound to the site and the
-normalized email (`trim().toLowerCase()`), with which the website lists that
-email's submitted orders on that site. `TRACKING_HASH_SECRET` keys every hash
-and signs the grant; no raw email or code is stored or logged. A **change
-request** is a customer's ask to change a `sim_order` at `pending`,
-`verified` or `on_hold` (`app.change_requests`): name, phone, plan,
-delivery, arrival date, permit type, addresses, flight booked and new
-passport or visa files, never the email. A lead has at most one pending
-request; a new one from the customer replaces it in place (same number,
-`version + 1`), and staff approve or reject a version they saw
-(`expectedVersion`, else `version_conflict`). Approval applies the fields
-through `applyLeadUpdate`, the staff edit's own path. Requests are numbered
-per site from the counter `change_request_no`, after the imported ones. A
-**held document** is a customer's file sent with a pending request
-(`files.held_for_change_request`): not on the Documents card and not current
-until the request is approved, deleted if it is rejected. The timeline and
-audit carry request numbers, field keys and document types, never values.
-
-A **flow** (an automation) is a trigger and ordered steps, for example
-"when a SIM order moves to Delivered, send the Dispatched email". Triggers:
-`lead_submitted`, `stage_entered`, and the time triggers `time_in_stage`
-(once per stay), `task_overdue` and `after_submitted`; steps: `send_email`,
-`create_task`, `assign_lead`, `update_lead` (a property, or the stage through
-the same gates a person passes), `notify_staff`, `if_else` (two branches, last
-in its sequence) and `wait`. A flow lives in `app.automations` (one row per
-flow, at most `AUTOMATION_MAX_FLOWS` = 50 not archived per site, built-ins
-included) with **versions** in `app.automation_versions`: one `draft` and one
-`active` at most, `retired` once replaced, `discarded` when thrown away; an
-activated version never changes, so a run waiting on it finds its steps.
-The six **built-in flows** (`BUILT_IN_AUTOMATION_KEYS`: `order_received`,
-`sim_order_information_needed`, `sim_order_dispatched`,
-`sim_order_activated`, `sim_order_cancelled`, `mobility_activated`) are seeded
-per site the first time the Automations page (or a flow page, a switch or an
-editor route) is read, off, with version 1 active and their phase 4 dedupe
-key; a custom flow's key is `flow_` and 16 characters. Every flow is off until
-someone with `integration.manage` switches it on; a site that never opened
-the page fires nothing; off queues nothing, records no run and cancels
-waiting runs. Activating a flow that changes leads (assign, update, task)
-also needs `lead.manage`, and its changes are made as the member who
-activated it. A **run** is one firing of a flow for one lead and occurrence
-(`app.automation_runs`: `waiting`, `completed`, `skipped`, `failed` or
-`cancelled`, with a reason and a `detail` of keys only); a **step run** is one
-step's outcome (`app.automation_step_runs`); a **wait** is a run paused at a
-wait step (`app.automation_waits`) and a **timer** a time trigger waiting for
-its moment (`app.automation_timers`, written only while the flow is on, never
-back-filled). The scheduler's `automations` task resumes due waits and fires
-due timers every 5 minutes. A flow's stage move may set off other flows, at
-most 3 deep (`chain_too_deep`) and never the same flow twice in one chain
-(`loop_prevented`); every move still fires its stage's flows. A flow naming a
-stage, template, property, plan or member that is no longer usable is
-skipped whole, and the list marks it "Needs attention". A **site-made
-template** is a `tpl_…` email template a site writes itself (at most 50 not
-archived), with `{prop:<key>}` fill-ins for properties a customer may see. A
-member's **notification address** (`memberships.notification_email`) is
-their verified sign-in address, recorded when they sign in and never shown;
-a `notify_staff` step mails it. Phase 4's rows keep their `outcome` and read
-as legacy runs. Runs are pruned 90 days after they finish.
-
-The **source report** (the Dashboard's sources card) counts one lead type's leads per
-**source** over 7, 30 or 90 days or all time: the source is the label
-`deriveSource` gives a lead's attribution (`partner:<code>`, with
-` (unmatched)` when no partner application matched the code; else
-`utm:<source>` with `/<medium>` when there is one; else `referrer:<host>`;
-else `direct`), computed in SQL. Per source it shows **received** (every
-counted lead), **submitted** (`status = 'submitted'`) and **made it** (the
-stage is one of `SOURCE_REPORT_SUCCESS_STAGES`: `activated`, `installed`,
-`completed`, `won`), and a `utm` source's campaigns. It counts exactly the
-leads `GET /leads/stats` counts (the site and type, not archived, not
-restricted, the window); at most `SOURCE_REPORT_MAX_SOURCES` (50) sources and
-`SOURCE_REPORT_MAX_CAMPAIGNS` (20) campaigns per source, the rest summed into
-one "Other" row. Attribution is customer-influenced text, shown as text only.
-
-A **task** is a row of `app.lead_tasks` (`open` To do, `in_progress`,
-`done`, `cancelled`): a lead's follow-up, or a **plain task**, a task with no
-lead (`leadId` null), made with the Tasks page's New task or an Ask AI card
-(`POST /workspaces/:id/tasks`, `lead.manage`, migration 0038). A plain task is
-on the Tasks board and in My tasks (listed only with `plain=include`), says
-"No lead" where a lead would be and links nowhere; it is never a lead's
-follow-up, so it starts no flow and no lead count includes it. A
-**`task_update` card** is Ask AI's signed proposal to change one task (a lead's
-or a plain one): its status, title, due date or assignee, confirmed through the
-staff `PATCH`'s own change and refused as stale (`409 conflict`) when the task
-changed since the card was prepared. The other card kinds and what stays with a
-person are in `docs/design/ai-actions.md` ("Wider cards").
-
-A **conversation** is one member's saved Ask AI chat on one site
-(`app.ai_conversations`, its messages in `app.ai_messages`, written once and
-never edited): private to that member under an owner policy, the site's owner
-included (anyone else gets `404 conversation_not_found`), and kept until the
-member deletes it, with two exceptions from migration 0039: a customer's
-erasure empties the turns about that lead, and a member gone from the site
-for 30 days loses their chats there (docs/design/ai-chat.md §13). An **attachment** is a file a member adds to a message
-(`app.ai_attachments`): `image`, `pdf` or `text`, of the kinds
-`AI_ATTACHMENT_KINDS` enables (none when unset), its type decided by its
-bytes. It is never a lead's document and never in `app.files`; it goes with
-its conversation, and an unsent one is swept a day later by the scheduler's
-`document_cleanup` task. **AI usage** is turns, tokens, models, outcomes and
-failure codes per member, model and Toronto day from `app.ai_turns`, beside
-the assistant's current configuration (Settings → AI usage, owner only by
-`staff.remove`), never content. Its **approximate cost** prices each model's
-tokens at the Gateway catalogue's current list prices, exactly, in whole
-micro-dollars; turns it cannot price are counted, never guessed, and the
-Gateway's invoice is the real figure. An **effort level** is how hard Ask AI works
-on one question, chosen in the composer: `normal`, or `high`
-(`AI_HIGH_EFFORT_ENABLED`) with larger turn limits, its own model and rate
-limits and optional model reasoning, never wider reads or fewer checks;
-recorded in `ai_turns.effort` and on both stored messages (0037). The
-**allowed models** are the Gateway models a site's owner lets members choose
-in the composer, up to 8, with one **default model** that answers a question
-nobody chose a model for (`app.ai_model_settings`, 0040, Settings → AI
-models); a chat's `model` must be in that saved list, and with nothing saved
-`AI_GATEWAY_MODEL` answers, as before.
-
-The **intake check** proves every 15 minutes that a website could still save a
-lead: the scheduler's task `intake_check` first refuses a site with any
-member, role or site key (`intake_check_site_not_test`, nothing written),
-deletes its own synthetic `internet` leads older than 10 minutes, pushes one fictional submitted `internet` lead ("Intake Check",
-`intake-check@example.invalid`) through the website route's own checks and
-`createLead`, reads it back and deletes it, as the scheduler's machine identity
-(scope `synthetic:check`). It runs on the **test site**: the site with slug
-`intake-check`, no members, no site keys, no email settings and no automation
-rows, whose id is `INTAKE_CHECK_WORKSPACE_ID` (unset, the check is off). A
-failure is a step (`leftovers`, `create`, `verify`, `delete`) and a bounded
-code; the owner is alerted (`synthetic_check_failed`, detail `<step>:<code>`)
-on the first failure and at most hourly while it lasts, and gets one
-all-clear (`synthetic_check_recovered`, `failed_runs:<n>`) when it passes
-again. A whole run gives up after 60 s (`INTAKE_CHECK_TIMEOUT_MS`, code
-`timeout`). `POST /api/internal/jobs/intake-check` runs one by hand and never
-alerts.
+- `workspace` in code = **Site** in the UI = one website.
+- A lead's `status` is the form's lifecycle (`incomplete` → `submitted`); its
+  `stage` is where staff are working it. `lead_type` names the form
+  (`sim_order`, `internet`, `mobility`, `partner_application`,
+  `contact_message`); labels, stages, **allowed moves** and **gates** per type
+  are in `leadTypeCatalog` (`packages/contracts/src/lead-types.ts`).
+- A **property** is one field of a lead, built-in (`leadPropertyCatalog`) or
+  **custom** (`custom_<snake>`, values in `leads.custom_values`). The
+  **catalogue** is what one site resolves to; every screen reads the
+  catalogue, never the code list.
+- A **plan** is something a site sells for one order lead type. An order
+  lead's **order details** hold its plan link, the **frozen plan** (a
+  snapshot taken at submission), quantity, payment status, carrier
+  commission and the dispatch and activation details. Payment and commission
+  are order details, never stages.
+- The **documents check** needs the frozen plan's required documents
+  approved before a gated move; the **override** (`order.override`, with a
+  reason) moves on without them.
+- To **archive** a lead is to soft-delete it. `/trash` routes and
+  `view=trash` are still accepted as aliases.
+- A **rescued checkout**: the first staff stage move of an incomplete lead
+  marks it submitted, unless the move is into a closing stage.
+- An **order number** is a SIM order's `MS-<n>`, the lead's `externalRef`,
+  from the site's counter.
+- A **change request** is a customer's ask, through order tracking, to change
+  a SIM order; staff approve or reject it on the lead page. A **held
+  document** is a file sent with a pending request.
+- A **flow** is an automation: a trigger and steps, with versions and runs.
+  Every flow is off until switched on.
+- A **task** is a lead's follow-up or a **plain task** with no lead.
+- A **card** is Ask AI's signed proposal of one change; nothing is written
+  until a person confirms it.
+- The **test site** is `intake-check`, used only by the intake check.
 
 ## Git
 
 Feature branches (`claude/<topic>`), PR into `main`. CI must be green. Pushing
-`main` is a release: Railway builds the backend image, Vercel builds the
-admin. Migrations are applied deliberately (docs/RUNBOOKS/database.md), not by
-the deploy.
+`main` is a release (Railway builds the backend image, Vercel builds the
+admin), so push there only with the owner's say-so; both skip builds when
+only docs change. Migrations are applied deliberately
+(docs/RUNBOOKS/database.md), not by the deploy. Commit messages explain the
+why; one change per commit.
