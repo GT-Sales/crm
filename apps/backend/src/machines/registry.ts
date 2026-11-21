@@ -74,18 +74,6 @@ export type WebhookResolution =
     }
   | MachineFailure;
 
-export interface SanityMachineIntegration {
-  selector: string;
-  workspaceId: string;
-  providerAccount: string;
-  projectId: string;
-  dataset: string;
-  apiVersion?: string;
-  readToken?: string;
-  revalidateUrl: string;
-  revalidateSecret: string;
-}
-
 export interface SchedulerIdentity {
   actorId: string;
   workspaceIds: readonly string[];
@@ -283,26 +271,6 @@ export class MachineRegistry {
       (entry) => !entry.revoked && entry.provider === 'resend' && entry.workspaceId === workspaceId,
     );
     return matches.length === 1 ? { providerAccount: matches[0]!.providerAccount } : undefined;
-  }
-
-  /** Internal-only provider configuration lookup; never accepts caller-supplied workspace context. */
-  sanityForWorkspace(workspaceId: string): SanityMachineIntegration | undefined {
-    const matches = [...this.webhooks.values()].filter(
-      (entry) =>
-        !entry.revoked &&
-        entry.provider === 'sanity' &&
-        entry.workspaceId === workspaceId &&
-        entry.sanity !== undefined,
-    );
-    if (matches.length !== 1) return undefined;
-    const entry = matches[0];
-    if (!entry?.sanity) return undefined;
-    return {
-      selector: entry.selector,
-      workspaceId: entry.workspaceId,
-      providerAccount: entry.providerAccount,
-      ...entry.sanity,
-    };
   }
 
   resolveScheduler(input: ResolveSchedulerInput): SchedulerResolution {
