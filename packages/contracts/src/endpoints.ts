@@ -192,6 +192,8 @@ import {
   leadStatsResponseSchema,
   listWorkspaceLeadsQuerySchema,
   listWorkspaceLeadsResponseSchema,
+  searchLeadBoardRequestSchema,
+  searchWorkspaceLeadsRequestSchema,
 } from './workspace-leads';
 
 /**
@@ -389,10 +391,21 @@ export const endpoints: readonly EndpointDef[] = [
     method: 'GET',
     path: '/api/v1/staff/workspaces/{workspaceId}/leads',
     summary:
-      'List leads with filters (type, stage, assignee, search, archive, follow-ups due) and attribution.',
+      'List leads with filters (type, stage, assignee, archive, follow-ups due) and attribution. A free-text search is `POST …/leads/search`; `q` here is refused.',
     auth: 'staff',
     successStatus: 200,
     query: listWorkspaceLeadsQuerySchema,
+    response: listWorkspaceLeadsResponseSchema,
+  },
+  {
+    operationId: 'searchWorkspaceLeads',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/leads/search',
+    summary:
+      "The leads list, searched: the free-text search (name, email, phone, reference) with the list filters in the body, so customer text is never in a URL. Reads only; the list's authorization and response.",
+    auth: 'staff',
+    successStatus: 200,
+    request: searchWorkspaceLeadsRequestSchema,
     response: listWorkspaceLeadsResponseSchema,
   },
   {
@@ -462,6 +475,17 @@ export const endpoints: readonly EndpointDef[] = [
     auth: 'staff',
     successStatus: 200,
     query: leadBoardQuerySchema,
+    response: leadBoardResponseSchema,
+  },
+  {
+    operationId: 'searchWorkspaceLeadBoard',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/leads/board/search',
+    summary:
+      "The board, searched: the free-text search and the board's filters in the body. Reads only; the board's authorization and response.",
+    auth: 'staff',
+    successStatus: 200,
+    request: searchLeadBoardRequestSchema,
     response: leadBoardResponseSchema,
   },
   {

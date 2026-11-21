@@ -20,8 +20,17 @@ import { auditEvents, draftGrants, files, leadTasks, leads, withTenantTx } from 
  * `partnerCodeMatched`, `referrerHost`) and the order details only the offer
  * (plan, quantity, payment and commission states); and the contact link is
  * cleared, the global contact row deleted when no lead on any site still
- * references it (`app.erase_restricted_lead_data`, migration 0030). Leads
- * restricted before this existed are finished the same way, a batch per run.
+ * references it (`app.erase_restricted_lead_data`, migration 0030).
+ *
+ * Issue #109: a lead restricted by an older version of this job gets the
+ * same erasure, a batch per run. It comes back into a run while it still
+ * holds anything a draft restricted today would not (`restrictedWithLeftovers`),
+ * and the same field list (`erasedLeadFields`) is applied to it, so both
+ * generations end with the same permitted fields; once it holds nothing
+ * more it is never picked again, so a second run changes nothing. Trimming
+ * the attribution of an already restricted lead needs migration 0042 (the
+ * guard refuses it before); until that is applied those leads keep their
+ * attribution extras, are not picked for them, and the run says so.
  */
 export const ABANDONED_LEAD_RETENTION_DAYS = 90;
 /** Bounded per run so one daily tick never holds a long lock. */
@@ -39,6 +48,29 @@ const ERASED_ORDER_KEYS = [
   'activationAccount',
   'documentsOverride',
 ] as const;
+
+/**
+ * What a restricted lead's own row loses, for a draft restricted now and for
+ * one restricted by an older version of this job alike. `trimAttribution`
+ * is false only for an already restricted lead before migration 0042.
+ */
+function erasedLeadFields(trimAttribution: boolean) {
+  return {
+    fullName: null,
+    email: null,
+    phone: null,
+    countryCode: null,
+    payload: null,
+    customValues: sql`'{}'::jsonb`,
+    contactId: null,
+    ...(trimAttribution
+      ? {
+          attribution: sql`${leads.attribution} - ${sql.raw(textArray(ERASED_ATTRIBUTION_KEYS))}`,
+        }
+      : {}),
+    orderDetails: sql`${leads.orderDetails} - ${sql.raw(textArray(ERASED_ORDER_KEYS))}`,
+  };
+}
 
 type RetentionDatabase = Pick<import('@gt-sales/db').DatabaseClient, 'withTenantTx'>;
 type Tx = Parameters<Parameters<typeof withTenantTx>[1]>[0];
@@ -117,15 +149,7 @@ export class DatabaseAbandonedLeadPruner {
           restricted = await tx
             .update(leads)
             .set({
-              fullName: null,
-              email: null,
-              phone: null,
-              countryCode: null,
-              payload: null,
-              customValues: sql`'{}'::jsonb`,
-              contactId: null,
-              attribution: sql`${leads.attribution} - ${sql.raw(textArray(ERASED_ATTRIBUTION_KEYS))}`,
-              orderDetails: sql`${leads.orderDetails} - ${sql.raw(textArray(ERASED_ORDER_KEYS))}`,
+              ...erasedLeadFields(true),
               customerDataRestrictedAt: input.now,
               updatedAt: input.now,
             })
@@ -133,18 +157,31 @@ export class DatabaseAbandonedLeadPruner {
             .returning({ id: leads.id });
         }
 
-        // Leads restricted before M-2 still hold files, identities, tasks,
-        // notes or a contact link: finish a batch of them too.
-        const leftovers = await restrictedWithLeftovers(tx, input.workspaceId);
+        // Leads restricted by an older version of this job still hold what
+        // a draft restricted today loses (files, identities, tasks, notes, a
+        // contact link, custom values, attribution extras): finish a batch
+        // of them too, with the same field list. Migration 0042 is applied
+        // by hand; before it the guard refuses an attribution change on a
+        // restricted lead, so those extras wait and are not selected on.
+        const [trim] = await tx.execute<{ present: boolean }>(
+          sql`select to_regprocedure('app.restricted_lead_erased_attribution_keys()') is not null as present`,
+        );
+        const trimAttribution = trim?.present === true;
+        if (!trimAttribution) {
+          console.warn(
+            JSON.stringify({
+              event: 'restricted_attribution_trim_unavailable',
+              workspaceId: input.workspaceId,
+            }),
+          );
+        }
+        const leftovers = await restrictedWithLeftovers(tx, input.workspaceId, trimAttribution);
         const restrictedIds = new Set(restricted.map((row) => row.id));
         const finished = leftovers.filter((row) => !restrictedIds.has(row.id));
         if (finished.length > 0) {
           await tx
             .update(leads)
-            .set({
-              contactId: null,
-              orderDetails: sql`${leads.orderDetails} - ${sql.raw(textArray(ERASED_ORDER_KEYS))}`,
-            })
+            .set(erasedLeadFields(trimAttribution))
             .where(
               and(
                 eq(leads.workspaceId, input.workspaceId),
@@ -301,11 +338,20 @@ function uuidArray(ids: readonly string[]) {
   return sql`${`{${ids.join(',')}}`}::uuid[]`;
 }
 
-/** Restricted leads of this site that still hold something M-2 erases. */
+/**
+ * Restricted leads of this site that still hold something a draft restricted
+ * today loses: on the row itself (`erasedLeadFields`) or in what it points at.
+ * A lead that holds none of it is not returned, which is what makes a second
+ * run a no-op and lets each run take the next batch.
+ */
 async function restrictedWithLeftovers(
   tx: Tx,
   workspaceId: string,
+  trimAttribution: boolean,
 ): Promise<{ id: string; contactId: string | null }[]> {
+  const attributionExtras = trimAttribution
+    ? sql`or jsonb_exists_any(${leads.attribution}, ${sql.raw(textArray(ERASED_ATTRIBUTION_KEYS))})`
+    : sql``;
   return tx
     .select({ id: leads.id, contactId: leads.contactId })
     .from(leads)
@@ -315,6 +361,14 @@ async function restrictedWithLeftovers(
         isNotNull(leads.customerDataRestrictedAt),
         sql`(
           ${leads.contactId} is not null
+          or ${leads.fullName} is not null
+          or ${leads.email} is not null
+          or ${leads.phone} is not null
+          or ${leads.countryCode} is not null
+          or ${leads.payload} is not null
+          or ${leads.customValues} <> '{}'::jsonb
+          or jsonb_exists_any(${leads.orderDetails}, ${sql.raw(textArray(ERASED_ORDER_KEYS))})
+          ${attributionExtras}
           or exists (select 1 from app.files f where f.workspace_id = ${leads.workspaceId}
             and f.record_type = 'lead' and f.record_id = ${leads.id} and f.status <> 'deleted')
           or exists (select 1 from app.lead_identities i where i.workspace_id = ${leads.workspaceId}

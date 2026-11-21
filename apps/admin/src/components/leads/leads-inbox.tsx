@@ -81,10 +81,12 @@ import { usePropertyModel } from '../properties/use-property-model';
 import {
   filterQueryForLeadType,
   inboxSearch,
+  legacySearchParam,
   parseHiddenColumns,
   parseInboxQuery,
   type InboxQuery,
 } from './inbox-query';
+import { LEAD_SEARCH_OPENED, peekLeadSearch, takeLeadSearch } from '../../lib/lead-search-handoff';
 import { propertyFilterParts, propertyOperatorLabel } from './lead-fields';
 import { LeadExportDialog } from './lead-export-dialog';
 import { LeadRecord } from './lead-record';
@@ -358,7 +360,7 @@ function useStableValue<T>(value: T): T {
  * The leads inbox: a tab per lead type the site has and the archive, with the
  * search and compact Filters, View options and Saved views menus at the end
  * of that row; the active filters as chips under it while
- * there are any; and a table or (for one type) a board. Every choice is in
+ * there are any; and a table or (for one type) a board. Every choice but the search text (page state, #83) is in
  * the URL.
  */
 /** Each site's one lead type (or none), as last seen this session: see `soleType`. */
@@ -380,9 +382,24 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
   // their content is the same, so opening a panel does not reload the list.
   const where = useStableValue(parsedQuery.where);
   const columns = useStableValue(parsedQuery.columns);
+  // The search is page state, never in the address (#83). It starts from a
+  // search handed over by Ctrl/Cmd K, or from an old link's `?q=`, which the
+  // effect below takes out of the address.
+  const [searchTerm, setSearchTerm] = useState<string | undefined>(
+    () => peekLeadSearch() ?? legacySearchParam(searchParams),
+  );
+  useEffect(() => {
+    const opened = () => {
+      const term = takeLeadSearch();
+      if (term !== undefined) setSearchTerm(term.trim().slice(0, 100) || undefined);
+    };
+    opened();
+    window.addEventListener(LEAD_SEARCH_OPENED, opened);
+    return () => window.removeEventListener(LEAD_SEARCH_OPENED, opened);
+  }, []);
   const query = useMemo<InboxQuery>(
-    () => ({ ...parsedQuery, where, columns }),
-    [parsedQuery, where, columns],
+    () => ({ ...parsedQuery, where, columns, ...(searchTerm ? { q: searchTerm } : {}) }),
+    [parsedQuery, where, columns, searchTerm],
   );
   // A link naming a custom property can only be read once the site's
   // catalogue is here; until then the list waits rather than load without it.
@@ -478,6 +495,7 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
           ? undefined
           : base.view;
     const next: InboxQuery = { ...base, page: 1, ...patch, view };
+    if ('q' in patch) setSearchTerm(patch.q);
     openQuery(
       next,
       catalogFailed && !next.archived
@@ -543,11 +561,12 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
     return catalogFailed ? {} : filterQueryForLeadType(latestQuery.current, nextType, catalog);
   }
 
-  // Two old addresses are rewritten once, in one change so neither undoes the
-  // other: hidden table columns used to live in this browser and move into
-  // the URL (`?hide=`) the first time the site's inbox opens without one, and
-  // links from before Archive replaced Trash said `?trash=1`; they open the
-  // archive, and the address is rewritten to say `?archived=1`.
+  // Three old addresses are rewritten, in one change so none undoes another:
+  // hidden table columns used to live in this browser and move into the URL
+  // (`?hide=`) the first time the site's inbox opens without one; links from
+  // before Archive replaced Trash said `?trash=1`, which opens the archive
+  // and is rewritten to `?archived=1`; and links from before #83 carried the
+  // search (`?q=`), which is taken out of the address.
   const migratedFor = useRef<string | undefined>(undefined);
   const rewrittenUrl = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -569,6 +588,15 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
       archivedFirst = params.get('trash') === '1' || params.get('archived') === '1';
       params.delete('trash');
       params.delete('archived');
+      changed = true;
+    }
+    // A link from before #83 carried the search (`?q=`): it is page state
+    // now (taken above, or here when the link arrives while the inbox is
+    // open), and the address is rewritten without it.
+    if (params.has('q')) {
+      const legacy = legacySearchParam(params);
+      if (legacy !== undefined) setSearchTerm(legacy);
+      params.delete('q');
       changed = true;
     }
     if (!changed) return;

@@ -971,7 +971,11 @@ CanadaWide's legacy `public.mobility_id_uploads`, when that table exists),
 nulls the `body` of their timeline entries, and deletes the given contacts
 that no lead on any site references. The backend itself tombstones the
 leads' files and deletes their objects, deletes their tasks, clears their
-contact link and trims attribution and order details. `search_path = ''`,
+contact link and trims the order details. It trims the attribution extras
+(`utmTerm`, `utmContent`, `landingPath`) only as part of the update that
+restricts a draft: on a lead that is already restricted, 0001's
+`app.guard_restricted_lead` refuses that change, so leads restricted before
+this kept theirs until 0042 (below, issue #109). `search_path = ''`,
 revoked from `PUBLIC`, granted to `app_runtime` only. No table, grant or
 policy changes. Paste file:
 [`manual/0030-restricted-lead-erasure.sql`](manual/0030-restricted-lead-erasure.sql).
@@ -1511,6 +1515,75 @@ select l.id, l.external_ref, o.order_no
 --    of 2026-11-20 and any since, newest first).
 select o.order_no, o.status, o.created_at from public.orders o
  where o.created_at >= '2026-11-12T06:10:00Z' order by o.created_at desc;
+```
+
+## 0042_restricted_attribution_trim (2026-11-21, issue #109, not applied)
+
+Older restricted drafts get the same erasure as current ones (owner decision,
+21 Nov 2026). A draft restricted today loses the attribution extras
+`utmTerm`, `utmContent` and `landingPath` (free text that can carry an
+identifier) in the update that restricts it. A draft restricted by an older
+version of the job kept them, and nothing could remove them: the trigger
+function `app.guard_restricted_lead` (0001) refuses every attribution change
+on a restricted lead except emptying it. Hand-written
+(`drizzle-kit generate --custom`; its snapshot is 0041's). No table, column,
+grant on a table or policy changes; it rewrites no row.
+
+**What it changes.**
+
+- `app.restricted_lead_erased_attribution_keys()` returns the three keys
+  (`text[]`, immutable, empty `search_path`, EXECUTE revoked from `PUBLIC`
+  and granted to `app_runtime`). The guard reads it, and its presence is how
+  the backend knows 0042 is applied.
+- `app.guard_restricted_lead()` is replaced with the same body and one more
+  permitted case on its attribution line: the new attribution equals the old
+  one **without exactly those keys**. A change to any other key, a new key,
+  or a rewrite of one of the three is still `customer_data_restricted`;
+  emptying to `{}` stays allowed as before; every other column's rule is
+  unchanged. The trigger `leads_customer_restriction` itself is not touched.
+  This was chosen over extending the SECURITY DEFINER erasure (0030) because
+  it is narrower: the guard is a row trigger, so it fires for that function's
+  updates too and would have had to be relaxed either way.
+
+**To apply** (owner, Supabase SQL editor as `postgres`), in one transaction:
+the file's statements without the `--> statement-breakpoint` lines, then the
+tracker row (hash, `created_at`): `0042_restricted_attribution_trim`
+`9913bac6c49ef6f62a911b1e52677fcf0be9a8c86c75aaa3d63b81181057646a`,
+`1795291043279` (43 rows). `CREATE OR REPLACE FUNCTION` on a trigger function
+takes a brief lock on the function only; no table is locked or rewritten.
+The deploy and the migration may go in either order.
+
+- **Before it is applied** (with this backend): the daily `data_retention`
+  task still restricts abandoned drafts and finishes older restricted leads
+  (files, identities, tasks, notes, contact link, custom values, order
+  details), leaves their attribution extras, does not select a lead for
+  them, and logs `restricted_attribution_trim_unavailable` with the site id
+  on each run.
+- **After applying**: the next daily runs pick every restricted lead of a
+  site that still holds an attribution extra (or any other leftover) and
+  apply the same field list as a new restriction
+  (`retention/abandoned-leads.ts`, `erasedLeadFields`), at most 1000 leads
+  per site per run, each with a `lead.restricted_data_erased` audit event. A
+  lead that holds nothing more is never picked again, so the clean-up ends
+  by itself, resumes where it stopped after a failed run, and a later run
+  changes nothing. `customer_data_restricted_at` and `updated_at` of those
+  leads are left as they were. This is irreversible.
+- Rollback, after reverting the code: re-create `app.guard_restricted_lead()`
+  from `0001_runtime_functions.sql`, then `DROP FUNCTION
+app.restricted_lead_erased_attribution_keys();` (in that order: the guard
+  calls it). Attribution already trimmed is not brought back.
+- Verify against the schema:
+
+```sql
+select app.restricted_lead_erased_attribution_keys();   -- {utmTerm,utmContent,landingPath}
+select has_function_privilege('app_runtime', 'app.restricted_lead_erased_attribution_keys()', 'EXECUTE') as runtime,
+       has_function_privilege('public', 'app.restricted_lead_erased_attribution_keys()', 'EXECUTE') as public;  -- t, f
+select pg_get_functiondef('app.guard_restricted_lead()'::regprocedure)
+       like '%restricted_lead_erased_attribution_keys%';  -- t
+-- Once the clean-up has run for every site: 0.
+select count(*) from app.leads
+ where customer_data_restricted_at is not null
+   and jsonb_exists_any(attribution, app.restricted_lead_erased_attribution_keys());
 ```
 
 ## Historical CanadaWide import (2026-10-27)

@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 
+import { peekLeadSearch, takeLeadSearch } from '../lib/lead-search-handoff';
 import { QuickNavigation } from './quick-navigation';
 
 const WORKSPACE = '10000000-0000-4000-8000-000000000001';
@@ -70,11 +71,28 @@ it('finds leads on this site once typing stops and opens the first with Enter', 
     view: 'active',
     pageSize: 6,
   });
+  // The address of "See all" never carries the search (#83).
   expect(
     within(results).getByRole('link', { name: 'See all 9 matches in Leads' }).getAttribute('href'),
-  ).toBe('/w/canadawide/leads?q=MS-4');
+  ).toBe('/w/canadawide/leads');
   fireEvent.keyDown(input, { key: 'Enter' });
   expect(mocks.push).toHaveBeenCalledWith(`/w/canadawide/leads/${LEAD}`);
+});
+
+it('hands the search to the inbox in memory when "See all" is followed (#83)', async () => {
+  mocks.getStaffLeads.mockResolvedValue({
+    leads: [nadia],
+    page: { page: 1, pageSize: 6, total: 9 },
+    access: { contacts: true, manage: true },
+  });
+  const { dialog, input } = await openPalette();
+  fireEvent.change(input, { target: { value: 'Nadia Khan' } });
+  const all = await within(dialog).findByRole('link', { name: 'See all 9 matches in Leads' });
+  expect(peekLeadSearch()).toBeUndefined();
+  all.addEventListener('click', (event) => event.preventDefault());
+  fireEvent.click(all);
+  expect(takeLeadSearch()).toBe('Nadia Khan');
+  expect(takeLeadSearch()).toBeUndefined();
 });
 
 it('drops a slower earlier answer once a newer search has been typed', async () => {

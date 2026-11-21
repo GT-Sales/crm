@@ -295,6 +295,13 @@
       "when": 1795181538013,
       "tag": "0041_getcanadasim_legacy_mirror",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1795291043279,
+      "tag": "0042_restricted_attribution_trim",
+      "breakpoints": true
     }
   ]
 }

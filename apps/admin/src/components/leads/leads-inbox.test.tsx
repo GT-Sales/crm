@@ -11,6 +11,7 @@ import {
 } from '@gt-sales/contracts';
 
 import { todayDay } from '../../lib/dates';
+import { openLeadSearch, peekLeadSearch, takeLeadSearch } from '../../lib/lead-search-handoff';
 import { catalogFromModel } from '../properties/use-property-model';
 import { filterQueryForLeadType, inboxSearch, parseInboxQuery } from './inbox-query';
 import { LeadsInbox } from './leads-inbox';
@@ -233,6 +234,7 @@ describe('LeadsInbox', () => {
   beforeEach(() => {
     navigation.replace.mockClear();
     navigation.search = '';
+    takeLeadSearch();
     window.localStorage.clear();
     for (const mock of Object.values(mocks)) mock.mockReset();
     mocks.listWorkspaceMembers.mockResolvedValue({ members: [] });
@@ -596,11 +598,69 @@ describe('LeadsInbox', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(350);
     });
-    expect(navigation.replace).toHaveBeenLastCalledWith(
-      '/w/canadawide/leads?type=internet&q=avery',
-      {
+    // The search is page state: the address keeps the filters and loses the page, nothing else.
+    expect(navigation.replace).toHaveBeenLastCalledWith('/w/canadawide/leads?type=internet', {
+      scroll: false,
+    });
+    await waitFor(() =>
+      expect(mocks.getStaffLeads).toHaveBeenLastCalledWith(
+        'staff-token',
+        WORKSPACE,
+        expect.objectContaining({ type: 'internet', q: 'avery', page: 1 }),
+      ),
+    );
+    expect(navigation.replace.mock.calls.some(([url]) => /avery/i.test(url))).toBe(false);
+    expect(navigation.search).not.toMatch(/avery/i);
+  });
+
+  it('takes a search out of an old link: the list is searched and the address rewritten without it (#83)', async () => {
+    navigation.search = 'type=internet&q=blake';
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    await waitFor(() =>
+      expect(navigation.replace).toHaveBeenCalledWith('/w/canadawide/leads?type=internet', {
         scroll: false,
-      },
+      }),
+    );
+    expect(screen.getByRole('searchbox', { name: 'Search leads' })).toHaveProperty(
+      'value',
+      'blake',
+    );
+    await waitFor(() =>
+      expect(mocks.getStaffLeads).toHaveBeenLastCalledWith(
+        'staff-token',
+        WORKSPACE,
+        expect.objectContaining({ type: 'internet', q: 'blake' }),
+      ),
+    );
+    expect(mocks.getStaffLeads.mock.calls.every(([, , query]) => query?.q === 'blake')).toBe(true);
+  });
+
+  it('opens on a search handed over from Ctrl/Cmd K, with nothing in the address (#83)', async () => {
+    navigation.search = 'type=internet';
+    openLeadSearch('MS-4');
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    await waitFor(() =>
+      expect(mocks.getStaffLeads).toHaveBeenLastCalledWith(
+        'staff-token',
+        WORKSPACE,
+        expect.objectContaining({ q: 'MS-4' }),
+      ),
+    );
+    expect(navigation.search).toBe('type=internet');
+    expect(peekLeadSearch()).toBeUndefined();
+
+    // And while the inbox is already open.
+    act(() => openLeadSearch('avery'));
+    await waitFor(() =>
+      expect(mocks.getStaffLeads).toHaveBeenLastCalledWith(
+        'staff-token',
+        WORKSPACE,
+        expect.objectContaining({ q: 'avery' }),
+      ),
+    );
+    expect(screen.getByRole('searchbox', { name: 'Search leads' })).toHaveProperty(
+      'value',
+      'avery',
     );
   });
 
@@ -990,7 +1050,7 @@ describe('LeadsInbox', () => {
     render(<LeadsInbox workspaceSlug="canadawide" />);
     await waitFor(() =>
       expect(navigation.replace).toHaveBeenCalledWith(
-        '/w/canadawide/leads?type=internet&q=avery&hide=source%2Ccreated',
+        '/w/canadawide/leads?type=internet&hide=source%2Ccreated',
         { scroll: false },
       ),
     );
@@ -1007,7 +1067,7 @@ describe('LeadsInbox', () => {
     render(<LeadsInbox workspaceSlug="canadawide" />);
     await waitFor(() =>
       expect(navigation.replace).toHaveBeenCalledWith(
-        '/w/canadawide/leads?archived=1&q=avery&hide=source%2Ccreated',
+        '/w/canadawide/leads?archived=1&hide=source%2Ccreated',
         { scroll: false },
       ),
     );

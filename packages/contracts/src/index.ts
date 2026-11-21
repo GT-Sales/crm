@@ -249,6 +249,10 @@ export {
   type ListWorkspaceLeadsQueryInput,
   type ListWorkspaceLeadsResponse,
   type ParsedLeadSort,
+  searchLeadBoardRequestSchema,
+  searchWorkspaceLeadsRequestSchema,
+  type SearchLeadBoardRequest,
+  type SearchWorkspaceLeadsRequest,
 } from './workspace-leads';
 
 export {

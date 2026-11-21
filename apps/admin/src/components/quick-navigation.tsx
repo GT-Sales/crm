@@ -15,6 +15,7 @@ import {
 } from '@gt-sales/ui';
 
 import { getStaffLeads } from '../lib/api';
+import { openLeadSearch } from '../lib/lead-search-handoff';
 import { describeError } from '../lib/error-text';
 import { leadDisplayName } from './leads/lead-display';
 import { useAskAiPageAvailable } from './ai/chat-nav';
@@ -181,8 +182,13 @@ export function QuickNavigation({
               ))}
               {search.status === 'done' && search.total > leads.length ? (
                 <Link
-                  href={`/w/${workspaceSlug}/leads?q=${encodeURIComponent(term.slice(0, 100))}`}
-                  onClick={close}
+                  href={`/w/${workspaceSlug}/leads`}
+                  onClick={() => {
+                    // The search is a customer's name, email or phone: handed to the
+                    // inbox in memory, never in the address (#83).
+                    openLeadSearch(term.slice(0, 100));
+                    close();
+                  }}
                   className="px-3 py-1.5 text-xs text-primary hover:underline"
                 >
                   See all {search.total} matches in Leads
