@@ -1161,14 +1161,6 @@ function taskDraftOf(
   return { kind: 'task', ...(leadId === null ? {} : { leadId }), ...rest };
 }
 
-/** The task tool's input for a task draft (the revise route re-runs the tool on an edit). */
-export function taskToolInputOf(
-  draft: Extract<AiCardDraft, { kind: 'task' }>,
-): z.infer<typeof taskToolInputSchema> {
-  const { kind: _kind, leadId, ...rest } = draft;
-  return { ...rest, leadId: leadId ?? null };
-}
-
 /**
  * Why a task tool made no card, from its result: the `reason` a move or a plain
  * task's refusal names (`task_not_found`, `already_in_stage`,

@@ -59,9 +59,6 @@ export type LeadStatus = (typeof leadStatuses)[number];
 export const websiteScopeNames = tuple('leads:write', 'uploads:customer', 'tracking');
 export type WebsiteScopeName = (typeof websiteScopeNames)[number];
 
-/** Distinguishes how a request authenticated, so a staff-only route can refuse a website caller. */
-export const callerTypes = tuple('staff', 'website', 'machine');
-
 /**
  * Scopes a verified machine identity may hold. Scheduler identities in the
  * server-only registry are granted an explicit subset.
