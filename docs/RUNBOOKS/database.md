@@ -1863,6 +1863,58 @@ select workspace_id, record_type, record_id, document_type, count(*)
 select indexdef from pg_indexes where indexname = 'files_one_current_per_slot';
 ```
 
+## 0048_getcanadasim_mirror_when_eligible (2026-11-21, issue #85, not applied)
+
+A rescued Get Canada Sim order reaches the old admin once its contact is
+complete (owner decision, 21 Nov 2026). 0041 skips a submitted order with no
+name or email and only ever looked at a lead when its status changed, so an
+order staff rescued without them and completed later never reached
+`public.orders`. Hand-written (`drizzle-kit generate --custom`).
+
+**What it changes.** `app.mirror_getcanadasim_legacy_order()` (same
+signature, SECURITY DEFINER, empty `search_path`) also copies, on an UPDATE
+that changes no status, a submitted lead whose name or email was missing
+before and both are present after; the trigger
+`leads_mirror_getcanadasim_legacy` is recreated as `after insert or update of
+status, full_name, email`. The copy reads the lead's own columns (a staff
+correction writes them; `app.contacts` is never read), through 0041's
+unchanged `app.copy_getcanadasim_legacy_order`: insert only, `on conflict do
+nothing` on the id and the order number. Its BACKFILL copies, once, every
+submitted order of the site with a name and email and no `public.orders`
+row. No table, grant or policy changes.
+
+**To apply** (owner, Supabase SQL editor as `postgres`), in one transaction:
+the file's statements without the `--> statement-breakpoint` lines, then the
+tracker row (hash, `created_at`): `0048_getcanadasim_mirror_when_eligible`
+`25f16006a971ef9eaaa58ca97511608f80b5b2a129b1eab2f846358de00a4a58`, `1795294469261` (49 rows, after 0047). Replacing the function and the trigger
+holds a SHARE ROW EXCLUSIVE lock on `app.leads` for a moment (writes wait,
+reads go on). The backfill reads the site's submitted orders without a legacy
+row and inserts those, a handful at most. Re-running it changes nothing. The
+deploy and the migration may go in either order (no backend code depends on
+it).
+
+- **After applying**: 0041's verify select 3 lists only orders still missing
+  a name or email (or skipped for a number the old table holds); each is
+  copied the moment staff complete it.
+- Rollback: re-run 0041's `create function app.mirror_getcanadasim_legacy_order`
+  as `create or replace`, then `drop trigger leads_mirror_getcanadasim_legacy on
+app.leads;` and 0041's `create trigger`; delete the tracker row. Rows already
+  copied stay in `public.orders`.
+- Verify against the schema:
+
+```sql
+select pg_get_triggerdef(oid) from pg_trigger
+ where tgname = 'leads_mirror_getcanadasim_legacy';
+  -- … AFTER INSERT OR UPDATE OF status, full_name, email ON app.leads …
+-- Submitted orders still not in the old admin, and why (no name or email, or other).
+select l.id, l.external_ref,
+       nullif(btrim(l.full_name), '') is null or nullif(btrim(l.email), '') is null as contact_missing
+  from app.leads l join app.workspaces w on w.id = l.workspace_id
+ where w.slug = 'getcanadasim' and l.lead_type = 'sim_order' and l.status = 'submitted'
+   and l.customer_data_restricted_at is null
+   and not exists (select 1 from public.orders o where o.id = l.id);
+```
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,

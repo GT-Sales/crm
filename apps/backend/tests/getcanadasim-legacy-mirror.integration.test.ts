@@ -58,12 +58,23 @@ const MIGRATION_SQL = readFileSync(
   'utf8',
 );
 
-/** The migration's backfill, between `-- BACKFILL BEGIN` and `-- BACKFILL END`, verbatim. */
-function backfillBlock(): string {
-  const begin = MIGRATION_SQL.indexOf('-- BACKFILL BEGIN');
-  const end = MIGRATION_SQL.indexOf('-- BACKFILL END');
-  if (begin < 0 || end < begin) throw new Error('no BACKFILL block in migration 0041');
-  return MIGRATION_SQL.slice(begin, end);
+/** Migration 0048 (issue #85): the copy once a rescued order gets its name and email. */
+const ELIGIBLE_MIGRATION_SQL = readFileSync(
+  fileURLToPath(
+    new URL(
+      '../../../packages/db/drizzle/0048_getcanadasim_mirror_when_eligible.sql',
+      import.meta.url,
+    ),
+  ),
+  'utf8',
+);
+
+/** A migration's backfill, between `-- BACKFILL BEGIN` and `-- BACKFILL END`, verbatim. */
+function backfillBlock(sql = MIGRATION_SQL): string {
+  const begin = sql.indexOf('-- BACKFILL BEGIN');
+  const end = sql.indexOf('-- BACKFILL END');
+  if (begin < 0 || end < begin) throw new Error('no BACKFILL block in the migration');
+  return sql.slice(begin, end);
 }
 
 // A distinct id range from every other integration test file sharing this database.
@@ -478,6 +489,87 @@ databaseTest('Get Canada Sim legacy mirror (migration 0041)', () => {
       // The table's own default for a rescued draft that never chose.
       delivery: 'esim',
     });
+  });
+
+  test('a rescued order with no name or email is copied once staff complete them, and only once (#85)', async () => {
+    // The customer gave neither before staff rescued the checkout.
+    const created = await leadStore.createLead({
+      workspaceId: site,
+      actorId: CREDENTIAL,
+      requestId: randomUUID(),
+      leadType: 'sim_order',
+      consentVersion: 'ci-gcs-mirror',
+      order: { planId: PLAN, quantity: 1 },
+    });
+    const leadId = created.lead.id;
+    const staffEdit = (input: Partial<Parameters<DatabaseLeadWorkStore['updateLead']>[0]>) =>
+      work.updateLead({
+        workspaceId: site,
+        actorId: STAFF,
+        requestId: randomUUID(),
+        leadId,
+        catalog: codePropertyCatalog,
+        ...input,
+      });
+    expect((await staffEdit({ stage: 'pending' })).status).toBe('updated');
+    expect(await orderRow(leadId)).toBeUndefined();
+
+    // A name alone is not enough for the old table.
+    expect((await staffEdit({ contact: { fullName: 'Nameless Rescued' } })).status).toBe('updated');
+    expect(await orderRow(leadId)).toBeUndefined();
+
+    // With the email the order becomes eligible and is copied, under its number.
+    expect((await staffEdit({ contact: { email: email('nameless') } })).status).toBe('updated');
+    const ref = await externalRef(leadId);
+    expect(await orderRow(leadId)).toMatchObject({
+      order_no: ref?.replace('MS-', ''),
+      full_name: 'Nameless Rescued',
+      email: email('nameless'),
+      status: 'pending',
+    });
+
+    // The old admin works it; a later correction in the CRM never reaches it.
+    await admin`update public.orders set admin_note = 'Called' where id = ${leadId}`;
+    const worked = await orderFingerprint(leadId);
+    expect((await staffEdit({ contact: { fullName: 'Renamed Rescued' } })).status).toBe('updated');
+    await admin`update app.leads set email = null where id = ${leadId}`;
+    await admin`update app.leads set email = ${email('nameless-2')} where id = ${leadId}`;
+    expect(await orderFingerprint(leadId)).toBe(worked);
+    const [count] = await admin<{ count: number }[]>`
+      select count(*)::int as count from public.orders where order_no = ${Number(ref?.replace('MS-', ''))}
+    `;
+    expect(count?.count).toBe(1);
+  });
+
+  test('0048’s pass copies every submitted order skipped before it that now has a name and email, once (#85)', async () => {
+    // Skipped by 0041 while nameless, completed before 0048 (its row is not there).
+    const completed = await insertLead({ externalRef: `MS-${await nextOrderNo()}` });
+    await admin`delete from public.orders where id = ${completed}`;
+    // Still nameless: stays skipped.
+    const nameless = await insertLead({
+      externalRef: `MS-${await nextOrderNo()}`,
+      fullName: null,
+    });
+    // Already in the old table and worked there: left as it is.
+    const worked = await insertLead({ externalRef: `MS-${await nextOrderNo()}` });
+    await admin`update public.orders set status = 'verified', admin_note = 'Mine' where id = ${worked}`;
+    const workedBefore = await orderFingerprint(worked);
+
+    await admin.unsafe(backfillBlock(ELIGIBLE_MIGRATION_SQL));
+    expect(await orderRow(completed)).toMatchObject({
+      full_name: 'Direct Insert',
+      status: 'pending',
+      same_created_at: true,
+    });
+    expect(await orderRow(nameless)).toBeUndefined();
+    expect(await orderFingerprint(worked)).toBe(workedBefore);
+
+    // Run again: nothing changes.
+    const copied = await orderFingerprint(completed);
+    await admin.unsafe(backfillBlock(ELIGIBLE_MIGRATION_SQL));
+    expect(await orderFingerprint(completed)).toBe(copied);
+    expect(await orderFingerprint(worked)).toBe(workedBefore);
+    expect(await orderRow(nameless)).toBeUndefined();
   });
 
   test('after the copy the old admin’s edits stay: the CRM never writes the row again', async () => {

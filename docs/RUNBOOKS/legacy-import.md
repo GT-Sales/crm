@@ -331,6 +331,20 @@ old table requires a name, email and phone, and the CRM erases an abandoned
 draft's details after 90 days. Once copied, the row is never written by the
 CRM again.
 
+**A rescued order completed later** (migration 0048, issue #85). Staff can
+rescue a checkout that has no name or email yet; 0041 skips it (the old table
+requires both) and, the contact being corrected later without any change of
+status, never looked again. Since 0048 the trigger also watches the lead's
+`full_name` and `email` (the copy reads the lead's own columns, which a staff
+correction writes; the shared `app.contacts` row is never read): a submitted
+order is copied the moment its name and email are both present for the first
+time, through the same function, so an existing row is never written and
+there is one legacy order per order number. A later correction of an order
+already complete copies nothing. 0048's backfill copied, once, every
+submitted order skipped before it that had a name and email by then; it is
+safe to run again (it changes nothing). An order still missing one of them
+waits until staff complete it.
+
 **The mapping**, the import's turned around (`form` is the lead's
 `payload.payload`, `order` its `order_details`):
 
