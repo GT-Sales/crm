@@ -1,20 +1,8 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import {
-  Area,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  ComposedChart,
-  Pie,
-  PieChart,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+import { type ReactNode } from 'react';
 import type { AnalyticsGroup, FunnelStep } from '@gt-sales/contracts';
 import { ChartNoAxesColumnIcon } from 'lucide-react';
 import { Card, CardContent, cn } from '@gt-sales/ui';
@@ -28,7 +16,8 @@ export const CHART_COLORS = [
   'var(--chart-5)',
 ] as const;
 
-const color = (index: number) => CHART_COLORS[index % CHART_COLORS.length] ?? 'var(--chart-1)';
+export const color = (index: number) =>
+  CHART_COLORS[index % CHART_COLORS.length] ?? 'var(--chart-1)';
 
 export const numberFormat = new Intl.NumberFormat('en-CA');
 export const moneyFormat = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' });
@@ -44,22 +33,6 @@ export function bucketLabel(bucket: string, group: AnalyticsGroup): string {
     return date.toLocaleDateString('en-CA', { month: 'short', year: 'numeric', timeZone: 'UTC' });
   const day = date.toLocaleDateString('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' });
   return group === 'week' ? `Week of ${day}` : day;
-}
-
-/** The width of a box, measured; a fixed fallback where there is no ResizeObserver (tests). */
-function useWidth(fallback = 640) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(fallback);
-  useEffect(() => {
-    const node = ref.current;
-    if (!node || typeof ResizeObserver === 'undefined') return;
-    const measure = () => setWidth(Math.max(240, Math.floor(node.getBoundingClientRect().width)));
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-  return { ref, width };
 }
 
 /**
@@ -151,212 +124,6 @@ export function ChartCard({
         </CardContent>
       </figure>
     </Card>
-  );
-}
-
-const axisTick = { fill: 'var(--muted-foreground)', fontSize: 12 };
-const tooltipStyle = {
-  background: 'var(--popover)',
-  border: '1px solid var(--border)',
-  borderRadius: 8,
-  color: 'var(--popover-foreground)',
-  fontSize: 12,
-};
-
-/** New leads per bucket, the comparison range as a faint dashed ghost. */
-export function TrendChart({
-  data,
-  group,
-  comparing,
-}: {
-  data: readonly { bucket: string; current: number; previous: number | null }[];
-  group: AnalyticsGroup;
-  comparing: boolean;
-}) {
-  const { ref, width } = useWidth();
-  const rows = data.map((entry) => ({ ...entry, label: bucketLabel(entry.bucket, group) }));
-  return (
-    <div ref={ref} className="w-full">
-      <ComposedChart
-        accessibilityLayer={false}
-        width={width}
-        height={248}
-        data={rows}
-        margin={{ top: 8, right: 8, left: -16 }}
-      >
-        <CartesianGrid vertical={false} stroke="var(--border)" />
-        <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} minTickGap={24} />
-        <YAxis allowDecimals={false} tick={axisTick} tickLine={false} axisLine={false} width={48} />
-        <Tooltip contentStyle={tooltipStyle} />
-        {comparing ? (
-          <Area
-            type="monotone"
-            dataKey="previous"
-            name="Comparison"
-            stroke="var(--muted-foreground)"
-            strokeOpacity={0.45}
-            strokeDasharray="4 4"
-            fill="none"
-            dot={false}
-            isAnimationActive={false}
-          />
-        ) : null}
-        <Area
-          type="monotone"
-          dataKey="current"
-          name="This period"
-          stroke="var(--foreground)"
-          fill="var(--foreground)"
-          fillOpacity={0.07}
-          strokeWidth={2}
-          dot={false}
-          isAnimationActive={false}
-        />
-      </ComposedChart>
-    </div>
-  );
-}
-
-/** Money per bucket, as bars. */
-export function MoneyBars({
-  data,
-  group,
-}: {
-  data: readonly { bucket: string; earnedMinor: number }[];
-  group: AnalyticsGroup;
-}) {
-  const { ref, width } = useWidth();
-  const rows = data.map((entry) => ({
-    label: bucketLabel(entry.bucket, group),
-    earned: entry.earnedMinor / 100,
-  }));
-  return (
-    <div ref={ref} className="w-full">
-      <BarChart
-        accessibilityLayer={false}
-        width={width}
-        height={220}
-        data={rows}
-        margin={{ top: 8, right: 8, left: 0 }}
-      >
-        <CartesianGrid vertical={false} stroke="var(--border)" />
-        <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} minTickGap={24} />
-        <YAxis
-          tick={axisTick}
-          tickLine={false}
-          axisLine={false}
-          width={64}
-          tickFormatter={(value: number) => moneyFormat.format(value)}
-        />
-        <Tooltip
-          contentStyle={tooltipStyle}
-          formatter={(value) => moneyFormat.format(Number(value))}
-        />
-        <Bar
-          dataKey="earned"
-          name="Earned"
-          fill="var(--chart-2)"
-          radius={[4, 4, 0, 0]}
-          isAnimationActive={false}
-        />
-      </BarChart>
-    </div>
-  );
-}
-
-/** Parts of a whole as a donut (eSIM vs physical, internet vs mobility). */
-export function Donut({ data }: { data: readonly { label: string; total: number }[] }) {
-  const total = data.reduce((sum, entry) => sum + entry.total, 0);
-  return (
-    <div className="flex flex-wrap items-center gap-6">
-      <PieChart accessibilityLayer={false} width={160} height={160}>
-        <Pie
-          data={[...data]}
-          dataKey="total"
-          nameKey="label"
-          innerRadius={48}
-          outerRadius={72}
-          stroke="var(--card)"
-          isAnimationActive={false}
-        >
-          {data.map((entry, index) => (
-            <Cell key={entry.label} fill={color(index)} />
-          ))}
-        </Pie>
-        <Tooltip contentStyle={tooltipStyle} />
-      </PieChart>
-      <ul className="flex min-w-0 flex-col gap-2 text-sm">
-        {data.map((entry, index) => (
-          <li key={entry.label} className="flex items-center gap-2">
-            <span className="size-2.5 rounded-sm" style={{ background: color(index) }} />
-            <span className="text-muted-foreground">{entry.label}</span>
-            <span className="font-medium tabular-nums">{numberFormat.format(entry.total)}</span>
-            <span className="text-xs text-muted-foreground tabular-nums">
-              {total > 0 ? percentFormat.format(entry.total / total) : ''}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-/** Two stacked bars (payment status, commission status), each split by its values. */
-export function StatusBars({
-  rows,
-}: {
-  rows: readonly {
-    label: string;
-    parts: readonly { key: string; label: string; total: number }[];
-  }[];
-}) {
-  const { ref, width } = useWidth();
-  const keys = [...new Set(rows.flatMap((row) => row.parts.map((part) => part.key)))];
-  const labels = new Map(rows.flatMap((row) => row.parts.map((part) => [part.key, part.label])));
-  const data = rows.map((row) => ({
-    row: row.label,
-    ...Object.fromEntries(row.parts.map((part) => [part.key, part.total])),
-  }));
-  return (
-    <div ref={ref} className="w-full">
-      <BarChart
-        accessibilityLayer={false}
-        width={width}
-        height={140}
-        data={data}
-        layout="vertical"
-        margin={{ top: 4, right: 8, left: 8, bottom: 4 }}
-      >
-        <XAxis type="number" hide allowDecimals={false} />
-        <YAxis
-          type="category"
-          dataKey="row"
-          tick={axisTick}
-          tickLine={false}
-          axisLine={false}
-          width={96}
-        />
-        <Tooltip contentStyle={tooltipStyle} />
-        {keys.map((key, index) => (
-          <Bar
-            key={key}
-            dataKey={key}
-            name={labels.get(key) ?? key}
-            stackId="status"
-            fill={color(index)}
-            isAnimationActive={false}
-          />
-        ))}
-      </BarChart>
-      <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        {keys.map((key, index) => (
-          <li key={key} className="flex items-center gap-1.5">
-            <span className="size-2.5 rounded-sm" style={{ background: color(index) }} />
-            {labels.get(key) ?? key}
-          </li>
-        ))}
-      </ul>
-    </div>
   );
 }
 
@@ -455,3 +222,61 @@ export function Funnel({
     </ol>
   );
 }
+
+/** The drawings' module, and with it the charting library. */
+const loadDrawings = () => import('./chart-drawings');
+// Asked for as soon as a page with charts runs, while its figures are still
+// on their way, so a chart seldom waits for it.
+if (typeof window !== 'undefined') void loadDrawings();
+
+/** Keeps a drawing's place in its card until the module is here. */
+function holdingPlace(height: number, width?: number) {
+  return function ChartLoading() {
+    return <div aria-hidden="true" style={{ height, width }} />;
+  };
+}
+
+/** New leads per bucket, the comparison range as a faint dashed ghost. */
+export const TrendChart = dynamic(() => loadDrawings().then((module) => module.TrendChart), {
+  ssr: false,
+  loading: holdingPlace(248),
+});
+
+/** Money per bucket, as bars. */
+export const MoneyBars = dynamic(() => loadDrawings().then((module) => module.MoneyBars), {
+  ssr: false,
+  loading: holdingPlace(220),
+});
+
+const DonutDrawing = dynamic(() => loadDrawings().then((module) => module.DonutDrawing), {
+  ssr: false,
+  loading: holdingPlace(160, 160),
+});
+
+/** Parts of a whole as a donut (eSIM vs physical, internet vs mobility), its legend beside it. */
+export function Donut({ data }: { data: readonly { label: string; total: number }[] }) {
+  const total = data.reduce((sum, entry) => sum + entry.total, 0);
+  return (
+    <div className="flex flex-wrap items-center gap-6">
+      <DonutDrawing data={data} />
+      <ul className="flex min-w-0 flex-col gap-2 text-sm">
+        {data.map((entry, index) => (
+          <li key={entry.label} className="flex items-center gap-2">
+            <span className="size-2.5 rounded-sm" style={{ background: color(index) }} />
+            <span className="text-muted-foreground">{entry.label}</span>
+            <span className="font-medium tabular-nums">{numberFormat.format(entry.total)}</span>
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {total > 0 ? percentFormat.format(entry.total / total) : ''}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Two stacked bars (payment status, commission status), each split by its values. */
+export const StatusBars = dynamic(() => loadDrawings().then((module) => module.StatusBars), {
+  ssr: false,
+  loading: holdingPlace(140),
+});
