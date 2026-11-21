@@ -384,31 +384,40 @@ function jsonStoredValue(property: SiteProperty): { v: SQL; j: SQL } {
 }
 
 /**
- * A JSON-stored property's condition (custom and order storage alike): PR
- * #1's per-kind rules over the kind-checked value.
+ * A built-in property's form value as its kind reads it. Text and choice
+ * kinds read whatever the form holds as text; a number, yes/no, date or date
+ * and time that is malformed is null, so it matches no condition and sorts
+ * last. `v` is the value as text, `j` as JSON.
  */
-function jsonFilterCondition(filter: LeadPropertyFilter, property: SiteProperty): SQL {
-  const { v, j } = jsonStoredValue(property);
-  const typed = customTyped(property.kind, v, j);
-  const isText =
-    property.kind !== 'number' &&
-    property.kind !== 'money' &&
-    property.kind !== 'count' &&
-    property.kind !== 'yesNo';
-
-  if (filter.op === 'empty') {
-    // No value at all, or a blank text; a malformed value is not empty either.
-    const empty = sql`(${j} is null or ${j} = 'null'::jsonb or (jsonb_typeof(${j}) = 'string' and btrim(${v}) = ''))`;
-    // A lead of a type with no order is not an order with an empty field.
-    return property.storage === 'order'
-      ? sql`(l.lead_type in (${ORDER_LEAD_TYPES}) and ${empty})`
-      : empty;
+function formTyped(kind: SiteProperty['kind'], v: SQL, j: SQL): SQL {
+  switch (kind) {
+    case 'number':
+    case 'money':
+    case 'count':
+      return sql`(case when jsonb_typeof(${j}) = 'number' then (${v})::numeric end)`;
+    case 'yesNo':
+      return sql`(case when jsonb_typeof(${j}) = 'boolean' then (${v})::boolean end)`;
+    case 'date':
+      return sql`(case when ${v} ~ '^\\d{4}-\\d{2}-\\d{2}$' then ${v} end)`;
+    case 'dateTime':
+      return sql`(case when ${v} ~ '^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])T([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(\\.\\d+)?(Z|[+-]([01]\\d|2[0-3]):[0-5]\\d)$' then (${v})::timestamptz end)`;
+    case 'text':
+    case 'longText':
+    case 'choice':
+    case 'email':
+    case 'phone':
+    case 'url':
+      return v;
   }
-  if (filter.op === 'notEmpty') {
-    return isText ? sql`coalesce(btrim(${typed}), '') <> ''` : sql`${typed} is not null`;
-  }
+}
 
-  switch (property.kind) {
+/**
+ * A filter's comparison (every operator but `empty` and `notEmpty`) over
+ * `typed`, the value as the property's kind reads it. An operator or a value
+ * the kind does not take matches nothing.
+ */
+function kindCondition(filter: LeadPropertyFilter, kind: SiteProperty['kind'], typed: SQL): SQL {
+  switch (kind) {
     case 'text':
     case 'longText':
     case 'email':
@@ -438,6 +447,12 @@ function jsonFilterCondition(filter: LeadPropertyFilter, property: SiteProperty)
       if (filter.op === 'gte') return sql`${typed} >= ${filter.value}`;
       return sql`false`;
     }
+    case 'dateTime': {
+      if (typeof filter.value !== 'string') return sql`false`;
+      if (filter.op === 'lte') return sql`${typed} <= ${filter.value}::timestamptz`;
+      if (filter.op === 'gte') return sql`${typed} >= ${filter.value}::timestamptz`;
+      return sql`false`;
+    }
     case 'number':
     case 'money':
     case 'count': {
@@ -452,16 +467,39 @@ function jsonFilterCondition(filter: LeadPropertyFilter, property: SiteProperty)
       if (filter.op === 'eq') return sql`${typed} = ${filter.value}`;
       return sql`false`;
     }
-    case 'dateTime':
-      // Neither a custom nor an order kind: no JSON-stored property has it.
-      return sql`false`;
   }
 }
 
-/** A built-in property's condition over the lead's form, as PR #1 defined it. */
+/** A JSON-stored property's condition (custom and order storage alike) over the kind-checked value. */
+function jsonFilterCondition(filter: LeadPropertyFilter, property: SiteProperty): SQL {
+  const { v, j } = jsonStoredValue(property);
+  const typed = customTyped(property.kind, v, j);
+  const isText =
+    property.kind !== 'number' &&
+    property.kind !== 'money' &&
+    property.kind !== 'count' &&
+    property.kind !== 'yesNo';
+
+  if (filter.op === 'empty') {
+    // No value at all, or a blank text; a malformed value is not empty either.
+    const empty = sql`(${j} is null or ${j} = 'null'::jsonb or (jsonb_typeof(${j}) = 'string' and btrim(${v}) = ''))`;
+    // A lead of a type with no order is not an order with an empty field.
+    return property.storage === 'order'
+      ? sql`(l.lead_type in (${ORDER_LEAD_TYPES}) and ${empty})`
+      : empty;
+  }
+  if (filter.op === 'notEmpty') {
+    return isText ? sql`coalesce(btrim(${typed}), '') <> ''` : sql`${typed} is not null`;
+  }
+  // Neither a custom nor an order kind: no JSON-stored property is a date and time.
+  if (property.kind === 'dateTime') return sql`false`;
+  return kindCondition(filter, property.kind, typed);
+}
+
+/** A built-in property's condition over the lead's form. */
 function formFilterCondition(filter: LeadPropertyFilter, property: SiteProperty): SQL {
   const v = sql`(l.payload -> 'payload' ->> ${filter.key})`;
-  const jsonVal = sql`(l.payload -> 'payload' -> ${filter.key})`;
+  const j = sql`(l.payload -> 'payload' -> ${filter.key})`;
 
   if (filter.op === 'empty') {
     return sql`coalesce(btrim(${v}), '') = ''`;
@@ -469,82 +507,7 @@ function formFilterCondition(filter: LeadPropertyFilter, property: SiteProperty)
   if (filter.op === 'notEmpty') {
     return sql`coalesce(btrim(${v}), '') <> ''`;
   }
-
-  switch (property.kind) {
-    case 'text':
-    case 'longText':
-    case 'email':
-    case 'phone':
-    case 'url': {
-      if (typeof filter.value !== 'string') return sql`false`;
-      if (filter.op === 'eq') {
-        return sql`lower(btrim(${v})) = lower(btrim(${filter.value}))`;
-      }
-      if (filter.op === 'contains') {
-        return sql`${v} ilike ${likePattern(filter.value)}`;
-      }
-      return sql`false`;
-    }
-    case 'choice': {
-      if (filter.op === 'eq' && typeof filter.value === 'string') {
-        return sql`${v} = ${filter.value}`;
-      }
-      if (filter.op === 'in' && Array.isArray(filter.value) && filter.value.length > 0) {
-        return sql`${v} in (${sql.join(
-          filter.value.map((item) => sql`${item}`),
-          sql`, `,
-        )})`;
-      }
-      return sql`false`;
-    }
-    case 'date': {
-      if (typeof filter.value !== 'string') return sql`false`;
-      if (filter.op === 'eq') {
-        return sql`(${v} ~ '^\\d{4}-\\d{2}-\\d{2}$' and ${v} = ${filter.value})`;
-      }
-      if (filter.op === 'lte') {
-        return sql`(${v} ~ '^\\d{4}-\\d{2}-\\d{2}$' and ${v} <= ${filter.value})`;
-      }
-      if (filter.op === 'gte') {
-        return sql`(${v} ~ '^\\d{4}-\\d{2}-\\d{2}$' and ${v} >= ${filter.value})`;
-      }
-      return sql`false`;
-    }
-    case 'dateTime': {
-      if (typeof filter.value !== 'string') return sql`false`;
-      const guardedTs = sql`(case when ${v} ~ '^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])T([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(\\.\\d+)?(Z|[+-]([01]\\d|2[0-3]):[0-5]\\d)$' then (${v})::timestamptz end)`;
-      if (filter.op === 'lte') {
-        return sql`${guardedTs} <= ${filter.value}::timestamptz`;
-      }
-      if (filter.op === 'gte') {
-        return sql`${guardedTs} >= ${filter.value}::timestamptz`;
-      }
-      return sql`false`;
-    }
-    case 'count':
-    case 'number':
-    case 'money': {
-      if (typeof filter.value !== 'number') return sql`false`;
-      const guardedNum = sql`(case when jsonb_typeof(${jsonVal}) = 'number' then (${v})::numeric end)`;
-      if (filter.op === 'eq') {
-        return sql`${guardedNum} = ${filter.value}`;
-      }
-      if (filter.op === 'lte') {
-        return sql`${guardedNum} <= ${filter.value}`;
-      }
-      if (filter.op === 'gte') {
-        return sql`${guardedNum} >= ${filter.value}`;
-      }
-      return sql`false`;
-    }
-    case 'yesNo': {
-      if (typeof filter.value !== 'boolean') return sql`false`;
-      if (filter.op === 'eq') {
-        return sql`${jsonVal} = to_jsonb(${filter.value}::boolean)`;
-      }
-      return sql`false`;
-    }
-  }
+  return kindCondition(filter, property.kind, formTyped(property.kind, v, j));
 }
 
 /** One property filter on lead `l`, as the inbox applies it (bound values only). */
@@ -642,16 +605,14 @@ function propertySortExpression(key: string, property: SiteProperty): SQL {
       : sql`nullif(btrim(${typed}), '')`;
   }
   const v = sql`(l.payload -> 'payload' ->> ${key})`;
-  const jsonVal = sql`(l.payload -> 'payload' -> ${key})`;
+  const j = sql`(l.payload -> 'payload' -> ${key})`;
   switch (property.kind) {
     case 'count':
     case 'number':
     case 'money':
-      return sql`(case when jsonb_typeof(${jsonVal}) = 'number' then (${v})::numeric end)`;
     case 'yesNo':
-      return sql`(case when jsonb_typeof(${jsonVal}) = 'boolean' then (${v})::boolean end)`;
     case 'date':
-      return sql`(case when ${v} ~ '^\\d{4}-\\d{2}-\\d{2}$' then ${v} end)`;
+      return formTyped(property.kind, v, j);
     default:
       return sql`nullif(btrim(${v}), '')`;
   }
