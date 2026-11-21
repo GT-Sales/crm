@@ -78,12 +78,22 @@ function ConversationRow({
   // does not blur (and so commit) the box it just opened.
   const renamingRef = useRef(false);
   const doneRef = useRef(false);
+  // Set when the edit ends by Enter or Escape: the row takes focus back.
+  const refocusRef = useRef(false);
 
   useEffect(() => {
-    if (!editing) return;
-    const input = inputRef.current;
-    input?.focus();
-    input?.select();
+    if (editing) {
+      const input = inputRef.current;
+      input?.focus();
+      input?.select();
+      return;
+    }
+    // In the commit that puts the row back, never a frame later: a deferred
+    // focus could land after the member's next action (an opened menu closes
+    // when focus leaves it).
+    if (!refocusRef.current) return;
+    refocusRef.current = false;
+    linkRef.current?.focus();
   }, [editing]);
 
   function startEditing(): void {
@@ -100,9 +110,9 @@ function ConversationRow({
   function finish(commit: boolean, refocus: boolean): void {
     if (doneRef.current) return;
     doneRef.current = true;
+    refocusRef.current = refocus;
     setEditing(false);
     if (commit) onRename(value);
-    if (refocus) requestAnimationFrame(() => linkRef.current?.focus());
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
