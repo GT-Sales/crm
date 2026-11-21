@@ -351,6 +351,7 @@ export function createDefaultSchedulerDependencies(): BackendSchedulerDependenci
   const abandonedLeads = new DatabaseAbandonedLeadPruner(undefined, { objects });
   const operational = operationalRetentionEnabled() ? new DatabaseOperationalPruner() : undefined;
   let queueHealth = INITIAL_QUEUE_HEALTH_STATE;
+  let documentCleanupAlert = { alerted: false };
   let intakeAlerts: IntakeAlertState = INITIAL_INTAKE_ALERT_STATE;
   const intakeCheck = { leads: new DatabaseLeadStore(), store: new DatabaseIntakeCheckStore() };
   const automations = {
@@ -368,7 +369,11 @@ export function createDefaultSchedulerDependencies(): BackendSchedulerDependenci
         (state) => (queueHealth = state),
         () => queueHealth,
       ),
-    runDocumentCleanup: (input) => runDocumentCleanup(documents, input, aiSweep, aiChats),
+    runDocumentCleanup: async (input) => {
+      const result = await runDocumentCleanup(documents, input, aiSweep, aiChats);
+      documentCleanupAlert = await alertStuckDeletions(alerts, result, documentCleanupAlert);
+      return result;
+    },
     runDataRetention: (input) =>
       runDataRetention({ abandonedLeads, operational }, input, new Date()),
     runIntakeCheck: (input) =>
@@ -515,6 +520,8 @@ export async function runDocumentCleanup(
       expiredIntents: number;
       deletedObjects: number;
       failedDeletes: number;
+      /** Document objects whose deletion has failed many times and is still pending (#82). */
+      stuckDeletions: number;
       aiAttachments?: {
         removed: number;
         deletedObjects: number;
@@ -533,7 +540,7 @@ export async function runDocumentCleanup(
     }
 > {
   if (!documents) return { skipped: 'feature_not_ready' };
-  const totals = { expiredIntents: 0, deletedObjects: 0, failedDeletes: 0 };
+  const totals = { expiredIntents: 0, deletedObjects: 0, failedDeletes: 0, stuckDeletions: 0 };
   const ai = { removed: 0, deletedObjects: 0, failedDeletes: 0, skippedSites: 0, failedSites: 0 };
   const chats = {
     erasedFiles: 0,
@@ -548,6 +555,7 @@ export async function runDocumentCleanup(
     totals.expiredIntents += result.expiredIntents;
     totals.deletedObjects += result.deletedObjects;
     totals.failedDeletes += result.failedDeletes;
+    totals.stuckDeletions += result.pendingDeletions?.stuck ?? 0;
     if (aiChats) {
       try {
         const cleaned = await aiChats({ workspaceId, actorId: input.actorId });
@@ -596,6 +604,32 @@ export async function runDocumentCleanup(
     ...(aiSweep ? { aiAttachments: ai } : {}),
     ...(aiChats ? { aiChats: chats } : {}),
   };
+}
+
+/**
+ * The owner hears once when document objects keep failing to delete (#82):
+ * `document_cleanup_stuck` with the count, when some first stay pending after
+ * `OBJECT_DELETION_STUCK_ATTEMPTS` tries, and again only after they cleared.
+ * Best effort: a failed alert is tried again on the next run.
+ */
+export async function alertStuckDeletions(
+  alerts: OwnerAlertChannel,
+  result: Awaited<ReturnType<typeof runDocumentCleanup>>,
+  state: { alerted: boolean },
+): Promise<{ alerted: boolean }> {
+  const stuck = 'stuckDeletions' in result ? result.stuckDeletions : 0;
+  if (stuck === 0) return { alerted: false };
+  if (state.alerted) return state;
+  try {
+    await alerts.send({
+      kind: 'document_cleanup_stuck',
+      detail: `stuck_deletions:${stuck}`,
+      occurredAt: new Date().toISOString(),
+    });
+    return { alerted: true };
+  } catch {
+    return { alerted: false };
+  }
 }
 
 /**

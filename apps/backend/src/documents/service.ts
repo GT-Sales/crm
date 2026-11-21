@@ -14,6 +14,12 @@ import {
   documentBucket,
 } from './config.js';
 import { candidateKey, importedObjectKey, sanitizedDownloadFilename, stagingKey } from './keys.js';
+import {
+  OBJECT_DELETION_BACKFILL_BATCH,
+  sweepObjectDeletions,
+  type ObjectDeletionQueue,
+  type ObjectDeletionSweepResult,
+} from './object-deletions.js';
 import type { DocumentRecordStore, FileRow, StaffFileRow } from './store.js';
 
 /**
@@ -126,6 +132,23 @@ export interface DocumentServiceOptions {
   bucket?: string;
   now?: () => Date;
   backupLease?: BackupLeaseGate;
+  /**
+   * The durable record of objects to delete (#82, #108). With it the sweep
+   * deletes through the record and retries until storage confirms; without
+   * it (unit tests) an expired upload's objects are deleted once, best effort.
+   */
+  objectDeletions?: ObjectDeletionQueue;
+  /** Older leftovers one sweep enqueues per site (default {@link OBJECT_DELETION_BACKFILL_BATCH}). */
+  deletionBackfillBatch?: number;
+}
+
+/** What one site's cleanup sweep did. Counts only. */
+export interface DocumentSweepResult {
+  expiredIntents: number;
+  deletedObjects: number;
+  failedDeletes: number;
+  /** The deletion record's pass, when the service has one. */
+  pendingDeletions?: ObjectDeletionSweepResult;
 }
 
 /**
@@ -142,6 +165,8 @@ export class DocumentService {
   private readonly bucket: string;
   private readonly now: () => Date;
   private readonly backupLease: BackupLeaseGate;
+  private readonly objectDeletions: ObjectDeletionQueue | undefined;
+  private readonly deletionBackfillBatch: number;
 
   constructor(
     private readonly store: DocumentRecordStore,
@@ -157,6 +182,8 @@ export class DocumentService {
     this.bucket = options.bucket ?? documentBucket();
     this.now = options.now ?? (() => new Date());
     this.backupLease = options.backupLease ?? { isActive: async () => false };
+    this.objectDeletions = options.objectDeletions;
+    this.deletionBackfillBatch = options.deletionBackfillBatch ?? OBJECT_DELETION_BACKFILL_BATCH;
   }
 
   async createIntent(input: CreateIntentInput): Promise<CreateIntentOutcome> {
@@ -505,15 +532,38 @@ export class DocumentService {
   }
 
   /**
-   * The scheduled sweep: expires abandoned upload intents, then deletes their
-   * staging/candidate objects from R2. Deletes are best-effort, so one R2 error
-   * never aborts the sweep; a failed object is counted, never retried blindly.
+   * The scheduled sweep: expires abandoned upload intents, then, with the
+   * deletion record, deletes the due objects it holds (an expired upload's,
+   * a tombstoned file's, a finalized upload's staging copy, older leftovers a
+   * bounded backfill batch adds each run), retrying failures later and never
+   * an object a live file uses (`object-deletions.ts`). While the backup holds
+   * its lease nothing is touched. Without the record, an expired upload's
+   * objects are deleted once, best effort.
    */
   async sweepExpired(input: {
     workspaceId: string;
     actorId: string;
-  }): Promise<{ expiredIntents: number; deletedObjects: number; failedDeletes: number }> {
+  }): Promise<DocumentSweepResult> {
     const result = await this.runCleanup(input);
+    if (this.objectDeletions && (await this.objectDeletions.ready(input))) {
+      if (await this.backupLease.isActive()) {
+        return { expiredIntents: 0, deletedObjects: 0, failedDeletes: 0 };
+      }
+      const pending = await sweepObjectDeletions({
+        queue: this.objectDeletions,
+        objects: this.r2,
+        workspaceId: input.workspaceId,
+        actorId: input.actorId,
+        now: this.now(),
+        backfillBatch: this.deletionBackfillBatch,
+      });
+      return {
+        expiredIntents: result.expiredIntents,
+        deletedObjects: pending.deleted,
+        failedDeletes: pending.failed,
+        pendingDeletions: pending,
+      };
+    }
     let deletedObjects = 0;
     let failedDeletes = 0;
     for (const objectKey of result.cleanedObjects) {

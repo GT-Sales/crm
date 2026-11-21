@@ -25,7 +25,7 @@ import { z } from 'zod';
 
 import { readAutomationLead } from '../automations/run.js';
 import { documentBucket } from '../documents/config.js';
-import { releaseHeldFiles, tombstoneHeldFiles } from '../documents/store.js';
+import { enqueueDeletedFile, releaseHeldFiles, tombstoneHeldFiles } from '../documents/store.js';
 import { composeCustomerEmail } from '../email/compose.js';
 import { queueComposedEmail } from '../email/queue.js';
 import { isPlanAvailable } from '../leads/order.js';
@@ -330,10 +330,18 @@ export class DatabaseChangeRequestStore implements ChangeRequestStore {
                 sql`${files.status} <> 'deleted'`,
               ),
             )
-            .returning({ objectKey: files.objectKey });
+            .returning({
+              id: files.id,
+              bucket: files.bucket,
+              stagingKey: files.stagingKey,
+              candidateKey: files.candidateKey,
+              objectKey: files.objectKey,
+            });
           // Already gone (staff removed it): nothing to delete, nothing to audit.
           if (!gone) continue;
           if (gone.objectKey) removedObjectKeys.push(gone.objectKey);
+          // Every copy of the replaced upload, by the cleanup sweep (#108).
+          await enqueueDeletedFile(tx, input.workspaceId, gone);
           await tx.insert(auditEvents).values({
             workspaceId: input.workspaceId,
             actorId: input.actorId,
@@ -418,8 +426,15 @@ export class DatabaseChangeRequestStore implements ChangeRequestStore {
                 and ${input.fileId}::uuid = any(r.staged_file_ids))`,
           ),
         )
-        .returning({ objectKey: files.objectKey });
+        .returning({
+          id: files.id,
+          bucket: files.bucket,
+          stagingKey: files.stagingKey,
+          candidateKey: files.candidateKey,
+          objectKey: files.objectKey,
+        });
       if (!gone) return [];
+      await enqueueDeletedFile(tx, input.workspaceId, gone);
       await tx.insert(auditEvents).values({
         workspaceId: input.workspaceId,
         actorId: input.actorId,

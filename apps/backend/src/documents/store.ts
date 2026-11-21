@@ -20,6 +20,13 @@ import {
   type FileStatus,
 } from '@gt-sales/contracts';
 
+import {
+  enqueueObjectDeletions,
+  fileObjectKeys,
+  isRetiredObjectKey,
+  STAGING_DELETE_MARGIN_MS,
+} from './object-deletions.js';
+
 /**
  * Persistence for T17 documents. The interface is store-agnostic so the
  * security logic in `service.ts` can be exercised against an in-memory
@@ -394,6 +401,11 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
           )
           .limit(1);
         if (!lead) return { status: 'lead_not_found' };
+        // A key that was ever queued for deletion is retired (#82): a retried
+        // import of a file erased since must not point a live row at it again.
+        if (await isRetiredObjectKey(tx, input.workspaceId, input.bucket, input.objectKey)) {
+          return { status: 'lead_not_found' };
+        }
 
         const revision = await nextRevision(
           tx,
@@ -543,6 +555,20 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
         // A held file waits for staff: it replaces the current one only on approval.
         if (!held) await supersedeEarlier(tx, row);
 
+        // The uploader's staging copy is disposable now that the verified
+        // candidate is attached; it goes once its upload link has expired (#108).
+        if (row.stagingKey !== input.objectKey) {
+          await enqueueObjectDeletions(tx, input.workspaceId, [
+            {
+              bucket: row.bucket,
+              objectKey: row.stagingKey,
+              fileId: row.id,
+              reason: 'staging_after_attach',
+              notBefore: new Date(row.expiresAt.getTime() + STAGING_DELETE_MARGIN_MS),
+            },
+          ]);
+        }
+
         await writeAudit(tx, {
           workspaceId: input.workspaceId,
           actorId: input.actorId,
@@ -571,8 +597,35 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
               eq(files.candidateKey, input.candidateKey),
             ),
           )
-          .returning({ id: files.id });
+          .returning({
+            id: files.id,
+            bucket: files.bucket,
+            stagingKey: files.stagingKey,
+            candidateKey: files.candidateKey,
+            expiresAt: files.expiresAt,
+          });
         if (row) {
+          // A rejected upload is never retried: both copies are disposable,
+          // the staging one once its upload link has expired (#108).
+          await enqueueObjectDeletions(tx, input.workspaceId, [
+            {
+              bucket: row.bucket,
+              objectKey: row.stagingKey,
+              fileId: row.id,
+              reason: 'upload_rejected',
+              notBefore: new Date(row.expiresAt.getTime() + STAGING_DELETE_MARGIN_MS),
+            },
+            ...(row.candidateKey
+              ? [
+                  {
+                    bucket: row.bucket,
+                    objectKey: row.candidateKey,
+                    fileId: row.id,
+                    reason: 'upload_rejected' as const,
+                  },
+                ]
+              : []),
+          ]);
           await writeAudit(tx, {
             workspaceId: input.workspaceId,
             actorId: input.actorId,
@@ -785,6 +838,8 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
           )
           .returning(fileColumns);
         if (!row) return { status: 'not_found' };
+        // Every copy goes with the file, by the cleanup sweep (#82).
+        await enqueueDeletedFile(tx, input.workspaceId, toFileRow(row));
         await writeAudit(tx, {
           workspaceId: input.workspaceId,
           actorId: input.actorId,
@@ -821,9 +876,28 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
               lt(files.expiresAt, cutoff),
             ),
           )
-          .returning({ stagingKey: files.stagingKey, candidateKey: files.candidateKey });
+          .returning({
+            id: files.id,
+            bucket: files.bucket,
+            stagingKey: files.stagingKey,
+            candidateKey: files.candidateKey,
+          });
         const cleanedObjects = expired.flatMap((row) =>
           [row.stagingKey, row.candidateKey].filter((key): key is string => key !== null),
+        );
+        // Recorded in this transaction, so a failed or interrupted delete is retried (#82).
+        await enqueueObjectDeletions(
+          tx,
+          input.workspaceId,
+          expired.flatMap((row) =>
+            fileObjectKeys({ ...row, objectKey: null }).map((objectKey) => ({
+              bucket: row.bucket,
+              objectKey,
+              fileId: row.id,
+              reason: 'upload_expired' as const,
+            })),
+          ),
+          input.now,
         );
         return { expiredIntents: expired.length, cleanedObjects };
       },
@@ -881,8 +955,9 @@ export async function releaseHeldFiles(
 
 /**
  * Tombstones a change request's held files (on rejection), audited
- * `file.deleted`, in the caller's transaction; returns their object keys for
- * the caller to delete once the transaction has committed.
+ * `file.deleted`, in the caller's transaction, and records every copy for the
+ * cleanup sweep; returns their object keys for the caller to delete at once
+ * after commit (best effort; the sweep confirms).
  */
 export async function tombstoneHeldFiles(
   tx: TenantTransaction,
@@ -901,9 +976,11 @@ export async function tombstoneHeldFiles(
           sql`${files.status} <> 'deleted'`,
         ),
       )
-      .returning({ objectKey: files.objectKey });
+      .returning(fileColumns);
     if (!row) continue;
     if (row.objectKey) objectKeys.push(row.objectKey);
+    // Every copy, staging and candidate too, by the cleanup sweep (#108).
+    await enqueueDeletedFile(tx, input.workspaceId, toFileRow(row));
     await writeAudit(tx, {
       workspaceId: input.workspaceId,
       actorId: input.actorId,
@@ -914,6 +991,38 @@ export async function tombstoneHeldFiles(
     });
   }
   return objectKeys;
+}
+
+/**
+ * Records every storage copy of a file just tombstoned for deletion, in the
+ * caller's transaction: its staging, candidate and served objects (#82, #108).
+ */
+export async function enqueueDeletedFile(
+  tx: TenantTransaction,
+  workspaceId: string,
+  file: Pick<FileRow, 'id' | 'bucket' | 'stagingKey' | 'candidateKey' | 'objectKey'> & {
+    expiresAt?: Date;
+  },
+): Promise<void> {
+  // A staging copy still waits out its upload link, so a late PUT cannot recreate it.
+  const stagingNotBefore = file.expiresAt
+    ? new Date(file.expiresAt.getTime() + STAGING_DELETE_MARGIN_MS)
+    : undefined;
+  await enqueueObjectDeletions(
+    tx,
+    workspaceId,
+    fileObjectKeys(file).map((objectKey) => ({
+      bucket: file.bucket,
+      objectKey,
+      fileId: file.id,
+      reason: 'file_deleted' as const,
+      ...(objectKey === file.stagingKey &&
+      objectKey !== file.objectKey &&
+      stagingNotBefore !== undefined
+        ? { notBefore: stagingNotBefore }
+        : {}),
+    })),
+  );
 }
 
 async function selectFile(

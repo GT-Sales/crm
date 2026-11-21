@@ -1,6 +1,7 @@
 import { createR2DocumentStoreFromEnv } from '@gt-sales/adapters';
 
 import { documentBucket } from './config.js';
+import { DatabaseObjectDeletionQueue } from './object-deletions.js';
 import { DatabaseDocumentContextResolver } from './resolver.js';
 import { DatabaseDocumentStore } from './store.js';
 import { DocumentService } from './service.js';
@@ -24,6 +25,6 @@ export function createDocumentServiceFromEnv(
     new DatabaseDocumentStore(),
     r2,
     new DatabaseDocumentContextResolver(),
-    { bucket: documentBucket(env) },
+    { bucket: documentBucket(env), objectDeletions: new DatabaseObjectDeletionQueue() },
   );
 }

@@ -970,7 +970,8 @@ restricted it deletes their `lead_identities` (and the same ids in
 CanadaWide's legacy `public.mobility_id_uploads`, when that table exists),
 nulls the `body` of their timeline entries, and deletes the given contacts
 that no lead on any site references. The backend itself tombstones the
-leads' files and deletes their objects, deletes their tasks, clears their
+leads' files and deletes their objects (recorded in the same transaction and
+retried until storage confirms once 0043 is applied), deletes their tasks, clears their
 contact link and trims the order details. It trims the attribution extras
 (`utmTerm`, `utmContent`, `landingPath`) only as part of the update that
 restricts a draft: on a lead that is already restricted, 0001's
@@ -1584,6 +1585,93 @@ select pg_get_functiondef('app.guard_restricted_lead()'::regprocedure)
 select count(*) from app.leads
  where customer_data_restricted_at is not null
    and jsonb_exists_any(attribution, app.restricted_lead_erased_attribution_keys());
+```
+
+## 0043_file_object_deletions (2026-11-21, issues #82 and #108, not applied)
+
+Every storage copy of a document is deleted, and a failed delete is retried
+until storage confirms (owner decision, 21 Nov 2026). An upload leaves up to
+three objects: the uploader's staging copy, the private candidate the
+verification copies it to, and the candidate served once attached. Before
+this, a finalize kept the staging copy for good, a rejected or replaced
+change-request document lost only its served object, a staff deletion kept
+all three, and the deletes after a commit (abandoned-draft erasure, a
+decision) were tried once and only counted when they failed.
+
+**What it changes.** A new table `app.file_object_deletions`, one row per
+object to delete (site, bucket, key, the file it belonged to, a reason, when
+it may be tried, the tries, the last failure's code, when it was completed and
+how: `deleted` or `kept_referenced`), with its tenant and backup read
+policies, FORCE RLS and `SELECT, INSERT, UPDATE` for `app_runtime` (no
+DELETE: a completed row is the record that its object is gone). Two plain
+indexes for the sweep's check: `files_candidate_key_idx` (partial) on
+`app.files` and `file_revisions_object_key_idx` on `app.file_revisions`. No
+existing row changes.
+
+The backend then writes a row in the same transaction as: a finalize's attach
+(the staging copy, due five minutes after its upload link expired), a
+verification's rejection and an upload's expiry (staging and candidate),
+and every tombstone (all three keys): staff deleting a file, a change
+request's rejection and a replaced or unjoined held upload, abandoned-draft
+erasure. The scheduler's hourly `document_cleanup` deletes due rows, 100 at
+a time and at most 500 per site per run, outside any transaction; a row is
+completed only when storage answers that the object is gone (already absent
+counts). A failure keeps the row, backed off 5 minutes doubling to a day,
+logs `document_object_delete_failed` (site, code, count; never a key), and
+after five failed tries the owner gets one `document_cleanup_stuck` alert
+until they clear. Each run also enqueues up to 200 older leftovers per site
+(the backfill: the staging copy of every finalized file, every key of a
+rejected or deleted file), oldest first, until none is left; an object with a
+row is never picked again, so it resumes after a failed run and ends by
+itself.
+
+**Never a referenced object.** In the transaction that claims a row, the
+sweep checks the site's files: a key that is a file's served object (any
+status but `deleted`), the candidate of a file being verified or available,
+the staging object of an upload in progress, or a kept revision of a file not
+deleted, is completed `kept_referenced` and its object stays. Superseded
+files are `available`, so they keep their objects as before. Only keys this
+backend issued (`staging/<site>/…`, `candidate/<site>/…`) are enqueued; an
+imported document whose key already has a row is refused by the import. A
+row completed `kept_referenced` is reopened when its file is deleted later.
+
+**To apply** (owner, Supabase SQL editor as `postgres`), in one transaction:
+the file's statements without the `--> statement-breakpoint` lines, then the
+tracker row (hash, `created_at`): `0043_file_object_deletions`
+`e12f780ebb7f78c812f770fc5e40fa557ea6462dd21ea23c4c360c0fc82a15f4`,
+`1795291956666` (44 rows, after 0042). `CREATE TABLE` touches nothing live;
+each `CREATE INDEX` holds a SHARE lock on `app.files` or `app.file_revisions`
+while it builds, so uploads and reviews wait for it (reads go on): well under
+a second at a few thousand rows. The deploy and the migration may go in
+either order.
+
+- **Before it is applied** (with this backend): nothing is recorded, the
+  backend's probe asks again every five minutes, and an expired upload's
+  objects are deleted once by `document_cleanup`, as before.
+- **After applying**: within five minutes new deletions are recorded; the
+  next hourly runs work through the backlog, 200 objects per site per run,
+  then keep up. A deleted object cannot be brought back except from a backup
+  (`documents` objects of `deleted` files are only in the restore points from
+  before their deletion).
+- Rollback, after reverting the code: `drop table app.file_object_deletions;
+drop index app.files_candidate_key_idx; drop index
+app.file_revisions_object_key_idx;` and delete the tracker row. Objects already
+  deleted stay deleted.
+- Verify against the schema:
+
+```sql
+select relrowsecurity, relforcerowsecurity from pg_class
+ where oid = 'app.file_object_deletions'::regclass;                       -- t, t
+select policyname from pg_policies where tablename = 'file_object_deletions';
+  -- file_object_deletions_tenant_policy, file_object_deletions_backup_reader_read
+select has_table_privilege('app_runtime', 'app.file_object_deletions', 'UPDATE') as update,
+       has_table_privilege('app_runtime', 'app.file_object_deletions', 'DELETE') as delete;  -- t, f
+-- The backlog, per site and state (keys are opaque; this shows counts only).
+select workspace_id, outcome, count(*), max(attempts) from app.file_object_deletions
+ group by 1, 2 order by 1, 2;
+-- Stuck rows (the alert's), with their codes.
+select workspace_id, last_error, count(*) from app.file_object_deletions
+ where completed_at is null and attempts >= 5 group by 1, 2;
 ```
 
 ## Historical CanadaWide import (2026-10-27)

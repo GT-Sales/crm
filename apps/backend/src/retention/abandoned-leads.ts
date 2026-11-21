@@ -3,6 +3,8 @@ import { and, eq, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm';
 import type { R2DocumentStore } from '@gt-sales/adapters';
 import { auditEvents, draftGrants, files, leadTasks, leads, withTenantTx } from '@gt-sales/db';
 
+import { enqueueDeletedFile } from '../documents/store.js';
+
 /**
  * SEC-12, owner decision (22 Oct 2026): an order form
  * that is still `incomplete` 90 days after its last change has the visitor's
@@ -410,6 +412,7 @@ async function eraseLeadAttachments(
   // is already gone is a no-op.
   const tombstoned = await tx
     .select({
+      id: files.id,
       bucket: files.bucket,
       stagingKey: files.stagingKey,
       candidateKey: files.candidateKey,
@@ -426,6 +429,9 @@ async function eraseLeadAttachments(
   await tx
     .delete(leadTasks)
     .where(and(eq(leadTasks.workspaceId, workspaceId), inArray(leadTasks.leadId, leadIds)));
+  // Recorded in this transaction (#82): the deletes after commit are best
+  // effort, and the cleanup sweep retries each object until storage confirms.
+  for (const row of tombstoned) await enqueueDeletedFile(tx, workspaceId, row);
   const keys = new Map<string, { bucket: string; key: string }>();
   for (const row of tombstoned) {
     for (const key of [row.stagingKey, row.candidateKey, row.objectKey]) {

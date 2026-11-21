@@ -910,6 +910,10 @@ export const files = appSchema
         table.status,
         table.expiresAt,
       ),
+      // The deletion sweep's check that no live file still points at a key (#82).
+      index('files_candidate_key_idx')
+        .on(table.candidateKey)
+        .where(sql`${table.candidateKey} is not null`),
       tenantPolicy('files_tenant_policy', table.workspaceId),
       backupReadPolicy('files'),
     ],
@@ -1029,8 +1033,72 @@ export const fileRevisions = appSchema
         table.fileId,
         table.revision,
       ),
+      index('file_revisions_object_key_idx').on(table.objectKey),
       tenantPolicy('file_revisions_tenant_policy', table.workspaceId),
       backupReadPolicy('file_revisions'),
+    ],
+  )
+  .enableRLS();
+
+/**
+ * The storage objects of document files waiting to be deleted (#82, #108):
+ * one row per object, written in the same transaction that makes the object
+ * disposable (a file tombstoned, a finalize's staging copy, a rejected or
+ * expired upload), so a storage failure or a restart between the commit and
+ * the delete leaves the work recorded. The `document_cleanup` sweep deletes
+ * due rows in batches and marks a row completed only once storage answers
+ * that the object is gone (already absent counts); a row whose key a live
+ * file still references is completed as `kept_referenced` and nothing is
+ * deleted. Completed rows stay, so the backfill of older leftovers never
+ * enqueues the same object twice. Keys are the opaque server-generated ones
+ * (`staging/…`, `candidate/…`).
+ */
+export const fileObjectDeletions = appSchema
+  .table(
+    'file_object_deletions',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      bucket: text('bucket').notNull(),
+      objectKey: text('object_key').notNull(),
+      /** The file the object belonged to; no foreign key, as the row may be erased first. */
+      fileId: uuid('file_id'),
+      reason: text('reason').notNull(),
+      /** Not attempted before this: a staging copy waits out its upload link; a failure backs off. */
+      notBefore: timestamp('not_before', { withTimezone: true, mode: 'date' })
+        .defaultNow()
+        .notNull(),
+      attempts: integer('attempts').default(0).notNull(),
+      /** The last failure's code (`r2_cleanup_failed`, …), never a key or a message. */
+      lastError: text('last_error'),
+      completedAt: timestamp('completed_at', { withTimezone: true, mode: 'date' }),
+      /** `deleted`, or `kept_referenced` when a live file still pointed at the key. */
+      outcome: text('outcome'),
+      createdAt: createdAt(),
+      updatedAt: updatedAt(),
+    },
+    (table) => [
+      uniqueIndex('file_object_deletions_object_unique').on(
+        table.workspaceId,
+        table.bucket,
+        table.objectKey,
+      ),
+      index('file_object_deletions_due_idx')
+        .on(table.workspaceId, table.notBefore)
+        .where(sql`${table.completedAt} is null`),
+      check(
+        'file_object_deletions_reason_check',
+        sql`${table.reason} in ('staging_after_attach', 'upload_rejected', 'upload_expired', 'file_deleted', 'backfill')`,
+      ),
+      check(
+        'file_object_deletions_outcome_check',
+        sql`(${table.completedAt} is null and ${table.outcome} is null) or (${table.completedAt} is not null and ${table.outcome} in ('deleted', 'kept_referenced'))`,
+      ),
+      check('file_object_deletions_attempts_check', sql`${table.attempts} >= 0`),
+      tenantPolicy('file_object_deletions_tenant_policy', table.workspaceId),
+      backupReadPolicy('file_object_deletions'),
     ],
   )
   .enableRLS();

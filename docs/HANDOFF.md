@@ -241,7 +241,11 @@ with 400 (413 when too large), a database it could not reach with a retryable
 503 and anything else with a generic 500 (audit L-9, L-11).
 
 Scheduler (`ENABLE_SCHEDULER=1`, one replica): `outbox` 60 s,
-`document_cleanup` 1 h (with it, once migration 0036 is applied, the sweep of
+`document_cleanup` 1 h (once migration 0043 is applied it deletes the
+document objects recorded in `app.file_object_deletions`, retrying until
+storage confirms, never one a live file still uses, and backfills older
+leftovers 200 per site per run, `document_cleanup_stuck` when deletes keep
+failing; RUNBOOKS/database.md, 0043; with it, once migration 0036 is applied, the sweep of
 Ask AI files left unsent for a day, `ai_attachment_sweep_failed` when one
 site's sweep fails), `data_retention` 24 h (calls
 `app.prune_operational_rows`), `automations` 5 min (merge phase 8: resumes
@@ -591,6 +595,8 @@ Reference client: `lib/crm.ts` in the CanadaWide repository.
   are live; PLAN.md §7 has the dates.
 - **Migration 0042** (`restricted_attribution_trim`, issue #109) is in the
   code and **not applied**: §3.2 item 19.
+- **Migration 0043** (`file_object_deletions`, issues #82 and #108) is in the
+  code and **not applied**: §3.2 item 20.
 - **Migrations 0000 to 0041** are applied in production (RUNBOOKS/database.md;
   0017 and 0018 on 2026-10-31 with their tracker rows, 0019 and 0020 with merge
   phase 8 step A, 0021 and 0022 on 2026-11-04, 0023 to 0026 on 2026-11-05). On
@@ -665,6 +671,7 @@ tool holds the statement), add the tracker rows, verify against the catalog.
 | 17  | Migration `0040_ai_model_settings` (Ask AI's model choice: Settings → AI models and the composer's model menu)          | Applied on 2026-11-20 (41 tracker rows; table, forced RLS, both policies, constraints and grants checked). Settings → AI models can save; until an owner saves more than one model the composer shows no model menu and every turn uses `AI_GATEWAY_MODEL` (and High's own model) as before.                                                                                                                                              | The owner allows models in Settings → AI models (RUNBOOKS/ai-assistant.md §14).                                                                                                                                                                                                                                                                                                                                               |
 | 18  | Migration `0041_getcanadasim_legacy_mirror` (the old Get Canada Sim admin receives every submitted CRM order again)     | Applied on 2026-11-20 (42 tracker rows). The backfill copied the 13 submitted orders taken since the switch (MS-630 to MS-642); every submitted Get Canada Sim order then had its `public.orders` row (141 of 141), and each later one is copied as it is submitted. Nothing is synced after that; documents, notes and reminders stay in the CRM.                                                                                        | Retire the old admin when staff work only in the CRM; then remove the trigger and both functions in a new migration.                                                                                                                                                                                                                                                                                                          |
 | 19  | Migration `0042_restricted_attribution_trim` (older restricted drafts get the same erasure as current ones, issue #109) | **Not applied.** Until it is, the daily `data_retention` task finishes older restricted leads except their attribution extras (`utmTerm`, `utmContent`, `landingPath`), which the guard still refuses to change, and logs `restricted_attribution_trim_unavailable` per site. After it, the next daily runs trim them, at most 1000 leads per site per run, until none is left; a later run changes nothing. Safe in either deploy order. | RUNBOOKS/database.md, 0042: apply, tracker row (43 rows), the verify selects.                                                                                                                                                                                                                                                                                                                                                 |
+| 20  | Migration `0043_file_object_deletions` (every storage copy of a document deleted, retried until confirmed, #82, #108)   | **Not applied.** Until it is, staging copies, staff-deleted files' objects and a rejected or replaced change-request upload's copies stay in storage, and a failed delete after a commit is not retried. After it, each is recorded in its own transaction and deleted by the hourly `document_cleanup`; older leftovers are backfilled 200 per site per run. Safe in either deploy order.                                                | RUNBOOKS/database.md, 0043: apply, tracker row (44 rows), the verify selects; then watch the backlog shrink.                                                                                                                                                                                                                                                                                                                  |
 
 ## 4. What is verified, and how
 

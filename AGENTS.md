@@ -110,7 +110,9 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
 - Staff routes (sites, access, profile, leads, board, tasks, members, jobs,
   credentials, files): `src/routes/staff.ts`.
 - Documents: `src/documents/` (signed upload intent → finalize with
-  signature verification → attach; staff review and download links).
+  signature verification → attach; staff review and download links;
+  `object-deletions.ts` the durable record of storage copies to delete and
+  the `document_cleanup` sweep that deletes them, migration 0043).
 - Scheduler: `src/scheduler.ts` (`outbox`, `document_cleanup`,
   `data_retention`, `automations`, and `intake_check` when
   `INTAKE_CHECK_WORKSPACE_ID` is set), identities in
