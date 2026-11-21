@@ -32,6 +32,7 @@ export {
 
 // API-surface vocabularies
 export {
+  DEFAULT_DOCUMENT_TYPE_KEYS,
   MAX_DOCUMENT_BYTES,
   documentChecklistKeySchema,
   documentMediaTypeSchema,
