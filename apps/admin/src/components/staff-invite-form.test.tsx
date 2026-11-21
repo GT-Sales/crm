@@ -7,7 +7,10 @@ const WORKSPACE = '10000000-0000-4000-8000-000000000001';
 
 const mocks = vi.hoisted(() => ({ inviteStaff: vi.fn(), roles: ['owner'] }));
 
-vi.mock('../lib/api', () => ({ inviteStaff: mocks.inviteStaff }));
+vi.mock('../lib/api', () => ({
+  inviteStaff: mocks.inviteStaff,
+  BackendError: class extends Error {},
+}));
 
 vi.mock('./staff-session-provider', () => ({
   useStaffSession: () => ({
@@ -59,6 +62,36 @@ describe('StaffInviteForm', () => {
       email: 'jane@example.com',
       roles: ['viewer'],
     });
+  });
+
+  it('sends a group invitation once per person when a retry follows a failure', async () => {
+    mocks.inviteStaff
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error('connection dropped'))
+      .mockResolvedValue({});
+    render(<StaffInviteForm workspaceSlug="canadawide" />);
+    fireEvent.change(screen.getByLabelText('Staff email'), {
+      target: { value: 'one@example.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add more' }));
+    fireEvent.change(screen.getByLabelText('Staff email 2'), {
+      target: { value: 'two@example.com' },
+    });
+    fireEvent.submit(form());
+    expect(await screen.findByText(/1 of 2 invitations are pending/)).toBeTruthy();
+    // The invited row left the form; the failed one is still there.
+    expect(screen.queryByDisplayValue('one@example.com')).toBeNull();
+    expect(screen.getByDisplayValue('two@example.com')).toBeTruthy();
+
+    fireEvent.submit(form());
+    expect(
+      await screen.findByText(
+        'Invitation is pending. The recipient can now accept it from the sign-in page.',
+      ),
+    ).toBeTruthy();
+    const emails = mocks.inviteStaff.mock.calls.map((call) => call[2].email);
+    expect(emails).toEqual(['one@example.com', 'two@example.com', 'two@example.com']);
+    expect(emails.filter((email) => email === 'one@example.com')).toHaveLength(1);
   });
 
   it('shows nothing to a member who is not the owner', () => {
