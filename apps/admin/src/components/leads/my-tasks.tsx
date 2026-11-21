@@ -119,6 +119,27 @@ function patchList(
   }));
 }
 
+/** The contract's largest page of tasks; the page loads the active ones this many at a time. */
+const ACTIVE_PAGE_SIZE = 200;
+
+/** Whether the site holds more active tasks than `pages` pages of them. */
+function hasMorePages(result: ListWorkspaceTasksResponse, pages: number): boolean {
+  return result.page.total > pages * ACTIVE_PAGE_SIZE;
+}
+
+/** The list with one more page on its end; a task that moved between pages is kept once. */
+function appendPage(
+  current: ListWorkspaceTasksResponse,
+  next: ListWorkspaceTasksResponse,
+): ListWorkspaceTasksResponse {
+  const seen = new Set(current.tasks.map((task) => task.id));
+  return {
+    ...current,
+    tasks: [...current.tasks, ...next.tasks.filter((task) => !seen.has(task.id))],
+    page: next.page,
+  };
+}
+
 /**
  * "My tasks": the active (to do and in progress) tasks assigned to the
  * viewer on this site, the unassigned ones for picking up work, or the whole
@@ -134,20 +155,39 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
   const [view, setView] = useStoredChoice<View>(TASKS_VIEW_KEY, VIEWS, 'list');
   const [groupBy, setGroupBy] = useStoredChoice<BoardGroupBy>(TASKS_GROUP_KEY, GROUP_BYS, 'status');
   const today = todayDay();
-  const load = useMemo(
+  // How many pages of active tasks "Load more" has brought in; a reload reads them all again.
+  const pagesLoaded = useRef(1);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadPage = useMemo(
     () =>
       accessToken && workspaceId
-        ? () =>
+        ? (page: number) =>
             listStaffTasks(accessToken, workspaceId, {
               assignee: scope,
               status: 'active',
               plain: 'include',
-              pageSize: 200,
+              pageSize: ACTIVE_PAGE_SIZE,
+              ...(page > 1 ? { page } : {}),
             })
         : undefined,
     [accessToken, workspaceId, scope],
   );
+  const load = useMemo(() => {
+    if (!loadPage) return undefined;
+    // Another site or scope starts from its first page again.
+    pagesLoaded.current = 1;
+    return async () => {
+      let result = await loadPage(1);
+      for (let page = 2; page <= pagesLoaded.current; page += 1) {
+        if (!hasMorePages(result, page - 1)) break;
+        result = appendPage(result, await loadPage(page));
+      }
+      return result;
+    };
+  }, [loadPage]);
   const tasks = useResource(load);
+  const loadPageRef = useRef(loadPage);
+  loadPageRef.current = loadPage;
   const doneSince = addDays(today, -DONE_WINDOW_DAYS);
   const loadDone = useMemo(
     () =>
@@ -337,6 +377,50 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
 
   const list = tasks.data?.tasks ?? [];
   const activeCount = list.filter((task) => isActiveTaskStatus(task.status)).length;
+  // The active tasks the server counts beyond the pages loaded so far.
+  const notLoaded = tasks.data
+    ? Math.max(0, tasks.data.page.total - pagesLoaded.current * ACTIVE_PAGE_SIZE)
+    : 0;
+
+  /** The next page of active tasks, put on the end of the list and the board. */
+  async function loadMore() {
+    if (!loadPage || loadingMore) return;
+    const from = loadPage;
+    const page = pagesLoaded.current + 1;
+    setLoadingMore(true);
+    setMessage(undefined);
+    try {
+      const next = await from(page);
+      // The scope changed while this page was on its way: it belongs to another list.
+      if (from !== loadPageRef.current) return;
+      pagesLoaded.current = page;
+      tasks.mutate((current) => appendPage(current, next));
+    } catch (error) {
+      if (from === loadPageRef.current) setMessage(describeError(error, 'load more tasks'));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  const shownLine =
+    notLoaded > 0
+      ? `${activeCount} of ${activeCount + notLoaded} open tasks shown`
+      : `${activeCount} open task${activeCount === 1 ? '' : 's'}`;
+  const moreButton =
+    notLoaded > 0 ? (
+      <div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={loadingMore}
+          aria-label="Load more tasks"
+          onClick={() => void loadMore()}
+        >
+          {loadingMore ? 'Loading…' : `Load more (${notLoaded} not shown)`}
+        </Button>
+      </div>
+    ) : null;
   // The board reads both loads as one: a task completed here stays in the
   // first until the next load, and one reopened from Done in the second.
   const boardTasks = useMemo(() => {
@@ -476,6 +560,11 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
               Drag cards to move them, or use a card’s menu.
             </p>
           ) : null}
+          {notLoaded > 0 ? (
+            <p className="text-sm text-muted-foreground" aria-live="polite">
+              {shownLine}
+            </p>
+          ) : null}
           {boardTasks.length === 0 ? (
             // Each column keeps its own Add task, so the board's empty state needs none.
             <EmptyState
@@ -499,6 +588,7 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
             onAddColumn={openComposer}
             renderComposer={composerFor}
           />
+          {moreButton}
         </>
       ) : list.length === 0 ? (
         <EmptyState
@@ -518,7 +608,7 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
       ) : (
         <>
           <p className="text-sm text-muted-foreground" aria-live="polite">
-            {activeCount} open task{activeCount === 1 ? '' : 's'}
+            {shownLine}
           </p>
           {DATE_GROUPS.map((group) => {
             const entries = list.filter((task) => dateGroupOf(task, today) === group.key);
@@ -566,6 +656,7 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
               </details>
             );
           })}
+          {moreButton}
         </>
       )}
     </div>

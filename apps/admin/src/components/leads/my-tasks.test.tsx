@@ -226,6 +226,82 @@ describe('the Tasks page', () => {
   });
 });
 
+describe('more than one page of active tasks (#91)', () => {
+  const many = Array.from({ length: 201 }, (_, index) =>
+    task(`Follow-up ${index + 1}`, { due: null }),
+  );
+
+  function servePages() {
+    mocks.listStaffTasks.mockImplementation(
+      async (_token: string, _workspace: string, query: ListWorkspaceTasksQuery) => {
+        if (query.status === 'done') return response([doneTask]);
+        const page = query.page ?? 1;
+        return {
+          ...response(many.slice((page - 1) * 200, page * 200)),
+          page: { page, pageSize: 200, total: many.length },
+        };
+      },
+    );
+  }
+
+  it('says how many of the total are shown and loads the rest into the list', async () => {
+    servePages();
+    render(<MyTasks workspaceSlug="canadawide" />);
+    expect(await screen.findByText('Follow-up 200')).toBeTruthy();
+    expect(screen.getByText('200 of 201 open tasks shown')).toBeTruthy();
+    expect(screen.queryByText('Follow-up 201')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load more tasks' }));
+    expect(await screen.findByText('Follow-up 201')).toBeTruthy();
+    expect(mocks.listStaffTasks).toHaveBeenLastCalledWith('staff-token', WORKSPACE, {
+      assignee: 'me',
+      status: 'active',
+      plain: 'include',
+      pageSize: 200,
+      page: 2,
+    });
+    expect(screen.getByText('201 open tasks')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Load more tasks' })).toBeNull();
+  });
+
+  it('keeps the loaded pages when the list is read again after a save', async () => {
+    servePages();
+    render(<MyTasks workspaceSlug="canadawide" />);
+    await screen.findByText('Follow-up 200');
+    fireEvent.click(screen.getByRole('button', { name: 'Load more tasks' }));
+    await screen.findByText('Follow-up 201');
+
+    mocks.listStaffTasks.mockClear();
+    window.dispatchEvent(
+      new CustomEvent('crm:lead-work-saved', { detail: { workspaceId: WORKSPACE } }),
+    );
+    await waitFor(() => expect(mocks.listStaffTasks).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('Follow-up 201')).toBeTruthy();
+    expect(screen.getByText('201 open tasks')).toBeTruthy();
+  });
+
+  it('offers the same on the board, whose columns take the loaded tasks', async () => {
+    servePages();
+    await showBoard();
+    expect(screen.getByText('200 of 201 open tasks shown')).toBeTruthy();
+    expect(screen.queryByText('Follow-up 201')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Load more tasks' }));
+    expect(await within(column(/^To do/)).findByText('Follow-up 201')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Load more tasks' })).toBeNull();
+  });
+
+  it('says so and keeps the button when the next page fails to load', async () => {
+    servePages();
+    render(<MyTasks workspaceSlug="canadawide" />);
+    await screen.findByText('Follow-up 200');
+    mocks.listStaffTasks.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    fireEvent.click(screen.getByRole('button', { name: 'Load more tasks' }));
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Load more tasks' })).toBeTruthy();
+    expect(screen.getByText('200 of 201 open tasks shown')).toBeTruthy();
+  });
+});
+
 describe('the board by status', () => {
   it('has To do, In progress and Done, with To do grouped by due date and overdue flagged', async () => {
     await showBoard('status');
