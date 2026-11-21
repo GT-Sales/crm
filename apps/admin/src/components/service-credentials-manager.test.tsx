@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { BackendError } from '../lib/api';
 import { ServiceCredentialsManager } from './service-credentials-manager';
 
 const WORKSPACE = '10000000-0000-4000-8000-000000000001';
@@ -230,6 +231,42 @@ describe('ServiceCredentialsManager: changing a key’s lead types', () => {
       false,
     );
     expect(screen.getByText('Lead types: Internet, Mobility')).toBeTruthy();
+  });
+});
+
+describe('ServiceCredentialsManager: lead types before the database holds them', () => {
+  beforeEach(() => {
+    mocks.updateServiceCredential.mockReset();
+    mocks.listServiceCredentials.mockResolvedValue({
+      credentials: [
+        {
+          id: CREDENTIAL,
+          scopes: ['leads:write'],
+          leadTypes: null,
+          createdAt: '2026-09-16T00:00:00.000Z',
+          revokedAt: null,
+        },
+      ],
+    });
+  });
+
+  it('says a database update is needed, in words about changing a key', async () => {
+    mocks.updateServiceCredential.mockRejectedValue(
+      Object.assign(new BackendError('credential_lead_types_unavailable', 503, 'req'), {
+        code: 'credential_lead_types_unavailable',
+        status: 503,
+      }),
+    );
+    render(<ServiceCredentialsManager workspaceSlug="site-1" />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: `Edit lead types of key ${CREDENTIAL}` }),
+    );
+    const group = screen.getByRole('group', { name: `Lead types key ${CREDENTIAL} may send` });
+    fireEvent.click(within(group).getByRole('checkbox', { name: 'Mobility' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save lead types' }));
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'A key’s lead types cannot be changed until a database update is applied (migration 0043). Ask whoever looks after the CRM to apply it, then try again.',
+    );
   });
 });
 

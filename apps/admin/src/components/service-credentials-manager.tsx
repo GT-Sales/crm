@@ -22,6 +22,7 @@ import {
   updateServiceCredential,
 } from '../lib/api';
 import { describeError } from '../lib/error-text';
+import { errorReason } from '../lib/use-resource';
 import { useStaffSession } from './staff-session-provider';
 
 /** What a scope lets the website do, for the scopes whose name alone does not say. */
@@ -40,6 +41,10 @@ function leadTypesLine(credential: ServiceCredentialSummary): string {
     ? `Lead types: ${credential.leadTypes.map(leadTypeLabel).join(', ')}`
     : 'Lead types: not limited (any type)';
 }
+
+/** Why a key's lead types cannot be changed yet: the database does not hold them (migration 0043). */
+const LEAD_TYPES_NOT_STORED =
+  'A key’s lead types cannot be changed until a database update is applied (migration 0043). Ask whoever looks after the CRM to apply it, then try again.';
 
 /** The lead types in catalogue order, whatever order they were ticked in. */
 function inCatalogueOrder(leadTypes: readonly string[]): string[] {
@@ -243,7 +248,10 @@ export function ServiceCredentialsManager({ workspaceSlug }: { workspaceSlug: st
       setEditingId(undefined);
       return undefined;
     } catch (error) {
-      return describeError(error, 'change the key’s lead types');
+      // The shared sentence for this code is about issuing a key.
+      return errorReason(error) === 'credential_lead_types_unavailable'
+        ? LEAD_TYPES_NOT_STORED
+        : describeError(error, 'change the key’s lead types');
     }
   }
 
