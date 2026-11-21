@@ -104,7 +104,9 @@ refusal is an ordinary JSON error:
    it, locked; refuse a conversation this message created when the member
    would then have more than 500 on the site (`409
 conversation_limit_reached`, `details.limit`); refuse it when the two rows of this turn would
-   pass 200 messages (`409 conversation_full`); lock and check this message's
+   pass 200 messages (`409 conversation_full`), counting the stored rows plus
+   one reserved for each accepted question whose answer is not written yet, so
+   overlapping turns cannot pass the cap; lock and check this message's
    files (each the member's, `ready` and not yet sent, else
    `400 invalid_request`); insert the member's message with the request id
    (a second insert for the same id is `409 conflict`); link the files; move

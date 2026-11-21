@@ -583,8 +583,22 @@ export class DatabaseAiConversationStore implements AiConversationStore {
           }
         }
 
+        // The stored rows, plus one for each accepted question whose answer is
+        // not written yet: its slot is reserved, so turns that overlap cannot
+        // together pass the cap and push the newest rows out of the 200 a
+        // read returns.
         const [count] = await tx.execute<{ count: number }>(sql`
-          select count(*)::int as count from app.ai_messages m
+          select (
+            count(*) + count(*) filter (
+              where m.role = 'user' and m.request_id is not null
+                and not exists (
+                  select 1 from app.ai_messages a
+                  where a.workspace_id = m.workspace_id and a.conversation_id = m.conversation_id
+                    and a.request_id = m.request_id and a.role = 'assistant'
+                )
+            )
+          )::int as count
+          from app.ai_messages m
           where m.workspace_id = ${scope.workspaceId} and m.actor_id = ${scope.actorId}
             and m.conversation_id = ${input.conversationId}
         `);
