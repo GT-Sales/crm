@@ -110,6 +110,8 @@ export {
   credentialLeadTypesSchema,
   listServiceCredentialsResponseSchema,
   revokeServiceCredentialResponseSchema,
+  updateServiceCredentialRequestSchema,
+  updateServiceCredentialResponseSchema,
   serviceCredentialSummarySchema,
   websiteAuthErrorCodeSchema,
   websiteScopeSchema,
@@ -118,6 +120,8 @@ export {
   type ListServiceCredentialsResponse,
   type RevokeServiceCredentialResponse,
   type ServiceCredentialSummary,
+  type UpdateServiceCredentialRequest,
+  type UpdateServiceCredentialResponse,
   type WebsiteAuthErrorCode,
 } from './website-auth';
 

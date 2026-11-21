@@ -300,10 +300,14 @@ import {
   createServiceCredentialResponseSchema,
   listServiceCredentialsResponseSchema,
   revokeServiceCredentialResponseSchema,
+  updateServiceCredentialRequestSchema,
+  updateServiceCredentialResponseSchema,
   type CreateServiceCredentialRequest,
   type CreateServiceCredentialResponse,
   type ListServiceCredentialsResponse,
   type RevokeServiceCredentialResponse,
+  type UpdateServiceCredentialRequest,
+  type UpdateServiceCredentialResponse,
 } from './website-auth';
 import {
   analyticsResponseSchema,
@@ -621,6 +625,11 @@ export interface BackendClient {
       workspaceId: string,
       body: CreateServiceCredentialRequest,
     ): Promise<CreateServiceCredentialResponse>;
+    updateServiceCredential(
+      workspaceId: string,
+      credentialId: string,
+      body: UpdateServiceCredentialRequest,
+    ): Promise<UpdateServiceCredentialResponse>;
     revokeServiceCredential(
       workspaceId: string,
       credentialId: string,
@@ -1371,6 +1380,13 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/service-credentials`,
           body: createServiceCredentialRequestSchema.parse(body),
           responseSchema: createServiceCredentialResponseSchema,
+        }),
+      updateServiceCredential: (workspaceId, credentialId, body) =>
+        call({
+          method: 'PATCH',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/service-credentials/${encode(credentialId)}`,
+          body: updateServiceCredentialRequestSchema.parse(body),
+          responseSchema: updateServiceCredentialResponseSchema,
         }),
       revokeServiceCredential: (workspaceId, credentialId) =>
         call({

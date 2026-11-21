@@ -19,6 +19,7 @@ import {
   createServiceCredential,
   listServiceCredentials,
   revokeServiceCredential,
+  updateServiceCredential,
 } from '../lib/api';
 import { describeError } from '../lib/error-text';
 import { useStaffSession } from './staff-session-provider';
@@ -40,6 +41,109 @@ function leadTypesLine(credential: ServiceCredentialSummary): string {
     : 'Lead types: not limited (any type)';
 }
 
+/** The lead types in catalogue order, whatever order they were ticked in. */
+function inCatalogueOrder(leadTypes: readonly string[]): string[] {
+  return LEAD_TYPES.filter((leadType) => leadTypes.includes(leadType));
+}
+
+function sameLeadTypes(a: readonly string[], b: readonly string[] | null | undefined): boolean {
+  return b != null && a.length === b.length && a.every((leadType) => b.includes(leadType));
+}
+
+/**
+ * The lead types of one existing key, as checkboxes with Save and Cancel. A
+ * key that is not limited starts with every type ticked, since that is what it
+ * accepts today; saving then limits it to the ticked ones.
+ */
+function LeadTypesEditor({
+  credential,
+  onSave,
+  onCancel,
+}: {
+  credential: ServiceCredentialSummary;
+  /** Saves the list; resolves to an error sentence when it could not be saved. */
+  onSave(leadTypes: string[]): Promise<string | undefined>;
+  onCancel(): void;
+}) {
+  const [selected, setSelected] = useState<readonly string[]>(
+    credential.leadTypes ? inCatalogueOrder(credential.leadTypes) : LEAD_TYPES,
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+  const none = selected.length === 0;
+  const unchanged = sameLeadTypes(selected, credential.leadTypes);
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (none || unchanged || saving) return;
+    setSaving(true);
+    setError(undefined);
+    const failure = await onSave([...selected]);
+    // On success the row replaces this editor, so there is nothing left to update.
+    if (failure === undefined) return;
+    setError(failure);
+    setSaving(false);
+  }
+
+  return (
+    <form onSubmit={save} className="flex w-full flex-col gap-2.5 pt-1">
+      <fieldset className="space-y-2">
+        <legend className="text-xs font-medium text-muted-foreground">
+          Lead types key {credential.id} may send
+        </legend>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {LEAD_TYPES.map((leadType) => {
+            const checked = selected.includes(leadType);
+            return (
+              <label
+                key={leadType}
+                className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-xs transition-colors ${
+                  checked
+                    ? 'border-foreground/30 bg-muted/60 text-foreground'
+                    : 'border-border/70 bg-background/40 text-muted-foreground hover:bg-muted/30 hover:text-foreground'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  className="size-3.5 rounded border-border accent-primary"
+                  checked={checked}
+                  disabled={saving}
+                  onChange={() =>
+                    setSelected((current) =>
+                      current.includes(leadType)
+                        ? current.filter((item) => item !== leadType)
+                        : inCatalogueOrder([...current, leadType]),
+                    )
+                  }
+                />
+                <span className="font-medium text-foreground">{leadTypeLabel(leadType)}</span>
+              </label>
+            );
+          })}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {none
+            ? 'Choose at least one lead type.'
+            : 'A lead of any other type is refused and nothing is saved. The key’s secret stays the same.'}
+        </p>
+      </fieldset>
+      {error === undefined ? null : (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      )}
+      <div className="flex gap-2">
+        <Button type="submit" size="sm" disabled={none || unchanged || saving}>
+          {saving ? 'Saving…' : 'Save lead types'}
+        </Button>
+        <Button type="button" size="sm" variant="outline" disabled={saving} onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 export function ServiceCredentialsManager({ workspaceSlug }: { workspaceSlug: string }) {
   const staff = useStaffSession();
   const workspace = staff.workspaces.find((item) => item.slug === workspaceSlug);
@@ -54,6 +158,8 @@ export function ServiceCredentialsManager({ workspaceSlug }: { workspaceSlug: st
   const [message, setMessage] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<ServiceCredentialSummary>();
+  /** The key whose lead types are being changed, if any. */
+  const [editingId, setEditingId] = useState<string>();
 
   const accessToken = staff.accessToken;
 
@@ -121,6 +227,23 @@ export function ServiceCredentialsManager({ workspaceSlug }: { workspaceSlug: st
       setMessage(describeError(error, 'revoke the key'));
     } finally {
       setBusy(false);
+    }
+  }
+
+  /** Saves a key's lead types; the error sentence when it could not be saved. */
+  async function saveLeadTypes(credentialId: string, leadTypes: string[]) {
+    if (!accessToken || !workspaceId) return undefined;
+    try {
+      const result = await updateServiceCredential(accessToken, workspaceId, credentialId, {
+        leadTypes,
+      });
+      setCredentials((current) =>
+        current.map((item) => (item.id === credentialId ? result.credential : item)),
+      );
+      setEditingId(undefined);
+      return undefined;
+    } catch (error) {
+      return describeError(error, 'change the key’s lead types');
     }
   }
 
@@ -280,16 +403,38 @@ export function ServiceCredentialsManager({ workspaceSlug }: { workspaceSlug: st
                   ) : null}
                 </span>
                 {credential.revokedAt ? null : (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => setRevokeTarget(credential)}
-                  >
-                    Revoke
-                  </Button>
+                  <span className="flex flex-wrap gap-2">
+                    {editingId === credential.id ? null : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={busy}
+                        aria-label={`Edit lead types of key ${credential.id}`}
+                        onClick={() => setEditingId(credential.id)}
+                      >
+                        Edit lead types
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => setRevokeTarget(credential)}
+                    >
+                      Revoke
+                    </Button>
+                  </span>
                 )}
+                {editingId === credential.id && !credential.revokedAt ? (
+                  <LeadTypesEditor
+                    key={credential.id}
+                    credential={credential}
+                    onSave={(leadTypes) => saveLeadTypes(credential.id, leadTypes)}
+                    onCancel={() => setEditingId(undefined)}
+                  />
+                ) : null}
               </li>
             ))}
           </ul>

@@ -124,6 +124,8 @@ import {
   type ReviewFileResponse,
   type RevokeServiceCredentialResponse,
   type RevokeStaffResponse,
+  type UpdateServiceCredentialRequest,
+  type UpdateServiceCredentialResponse,
   type StaffWorkspaceAccessResponse,
   type StaffWorkspacesResponse,
 } from '@gt-sales/contracts';
@@ -210,6 +212,15 @@ export async function createServiceCredential(
   input: CreateServiceCredentialRequest,
 ): Promise<CreateServiceCredentialResponse> {
   return client(accessToken).staff.createServiceCredential(workspaceId, input);
+}
+
+export async function updateServiceCredential(
+  accessToken: string,
+  workspaceId: string,
+  credentialId: string,
+  input: UpdateServiceCredentialRequest,
+): Promise<UpdateServiceCredentialResponse> {
+  return client(accessToken).staff.updateServiceCredential(workspaceId, credentialId, input);
 }
 
 export async function revokeServiceCredential(

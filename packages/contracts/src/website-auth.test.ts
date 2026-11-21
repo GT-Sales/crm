@@ -5,8 +5,11 @@ import {
   createServiceCredentialRequestSchema,
   createServiceCredentialResponseSchema,
   serviceCredentialSummarySchema,
+  updateServiceCredentialRequestSchema,
+  updateServiceCredentialResponseSchema,
   websiteAuthErrorCodeSchema,
 } from './index';
+import { endpoints } from './endpoints';
 
 describe('website auth contracts', () => {
   it('accepts a valid create request and rejects unknown scopes', () => {
@@ -50,6 +53,36 @@ describe('website auth contracts', () => {
     ).toEqual(['internet']);
     expect(serviceCredentialSummarySchema.parse({ ...base, leadTypes: null }).leadTypes).toBeNull();
     expect(serviceCredentialSummarySchema.parse(base).leadTypes).toBeUndefined();
+  });
+
+  it('changes an existing key’s lead types with the same rule as a new key', () => {
+    const ok = (leadTypes: unknown) =>
+      updateServiceCredentialRequestSchema.safeParse({ leadTypes }).success;
+    expect(ok(['internet', 'sim_order'])).toBe(true);
+    expect(ok(undefined)).toBe(false);
+    expect(ok([])).toBe(false);
+    expect(ok(['fax_order'])).toBe(false);
+    expect(ok(['internet', 'internet'])).toBe(false);
+
+    const value = {
+      credential: {
+        id: '80000000-0000-4000-8000-000000000101',
+        scopes: ['leads:write'],
+        leadTypes: ['internet', 'sim_order'],
+        createdAt: '2026-09-14T00:00:00.000Z',
+        revokedAt: null,
+      },
+      requestId: '70000000-0000-4000-8000-000000000101',
+    };
+    expect(updateServiceCredentialResponseSchema.parse(value)).toEqual(value);
+
+    const endpoint = endpoints.find((entry) => entry.operationId === 'updateServiceCredential');
+    expect(endpoint).toMatchObject({
+      method: 'PATCH',
+      path: '/api/v1/staff/workspaces/{workspaceId}/service-credentials/{credentialId}',
+      auth: 'staff',
+      successStatus: 200,
+    });
   });
 
   it('round-trips a create response with a one-time secret', () => {

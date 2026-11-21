@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   createServiceCredential: vi.fn(),
   listServiceCredentials: vi.fn(),
   revokeServiceCredential: vi.fn(),
+  updateServiceCredential: vi.fn(),
 }));
 
 vi.mock('../lib/api', () => ({
@@ -110,6 +111,125 @@ describe('ServiceCredentialsManager lead types (#84)', () => {
     render(<ServiceCredentialsManager workspaceSlug="site-1" />);
     expect(await screen.findByText('Lead types: Internet, Mobility')).toBeTruthy();
     expect(screen.getByText('Lead types: not limited (any type)')).toBeTruthy();
+  });
+});
+
+describe('ServiceCredentialsManager: changing a key’s lead types', () => {
+  const OTHER = '30000000-0000-4000-8000-000000000002';
+  const REVOKED = '30000000-0000-4000-8000-000000000003';
+  const key = (id: string, leadTypes: string[] | null, revokedAt: string | null = null) => ({
+    id,
+    scopes: ['leads:write'],
+    leadTypes,
+    createdAt: '2026-09-16T00:00:00.000Z',
+    revokedAt,
+  });
+
+  beforeEach(() => {
+    mocks.updateServiceCredential.mockReset();
+    mocks.listServiceCredentials.mockResolvedValue({
+      credentials: [
+        key(CREDENTIAL, ['internet', 'mobility']),
+        key(OTHER, null),
+        key(REVOKED, ['internet'], '2026-09-17T00:00:00.000Z'),
+      ],
+    });
+  });
+
+  const openEditor = async (id: string) => {
+    render(<ServiceCredentialsManager workspaceSlug="site-1" />);
+    fireEvent.click(await screen.findByRole('button', { name: `Edit lead types of key ${id}` }));
+    return screen.getByRole('group', { name: `Lead types key ${id} may send` });
+  };
+
+  it('offers the change on every key that is not revoked', async () => {
+    render(<ServiceCredentialsManager workspaceSlug="site-1" />);
+    expect(
+      await screen.findByRole('button', { name: `Edit lead types of key ${CREDENTIAL}` }),
+    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: `Edit lead types of key ${OTHER}` })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: `Edit lead types of key ${REVOKED}` })).toBeNull();
+  });
+
+  it('starts from the key’s own types and saves the ticked ones in catalogue order', async () => {
+    mocks.updateServiceCredential.mockResolvedValue({
+      credential: key(CREDENTIAL, ['internet', 'sim_order']),
+    });
+    const group = await openEditor(CREDENTIAL);
+    const checked = () =>
+      within(group)
+        .getAllByRole('checkbox')
+        .filter((box) => box instanceof HTMLInputElement && box.checked)
+        .map((box) => box.closest('label')?.textContent);
+    expect(checked()).toEqual(['Internet', 'Mobility']);
+    const save = screen.getByRole('button', { name: 'Save lead types' });
+    // Nothing changed yet, so there is nothing to save.
+    expect(save).toHaveProperty('disabled', true);
+
+    fireEvent.click(within(group).getByRole('checkbox', { name: 'SIM order' }));
+    fireEvent.click(within(group).getByRole('checkbox', { name: 'Mobility' }));
+    expect(save).toHaveProperty('disabled', false);
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(mocks.updateServiceCredential).toHaveBeenCalledWith(
+        'staff-token',
+        WORKSPACE,
+        CREDENTIAL,
+        { leadTypes: ['internet', 'sim_order'] },
+      ),
+    );
+    // The row shows the saved list and the editor is gone.
+    expect(await screen.findByText('Lead types: Internet, SIM order')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Save lead types' })).toBeNull();
+  });
+
+  it('cannot save with no lead type ticked, and says why', async () => {
+    const group = await openEditor(CREDENTIAL);
+    fireEvent.click(within(group).getByRole('checkbox', { name: 'Internet' }));
+    fireEvent.click(within(group).getByRole('checkbox', { name: 'Mobility' }));
+    expect(screen.getByRole('button', { name: 'Save lead types' })).toHaveProperty(
+      'disabled',
+      true,
+    );
+    expect(within(group).getByText('Choose at least one lead type.')).toBeTruthy();
+    expect(mocks.updateServiceCredential).not.toHaveBeenCalled();
+  });
+
+  it('shows a key that is not limited with every type ticked', async () => {
+    const group = await openEditor(OTHER);
+    for (const box of within(group).getAllByRole('checkbox')) {
+      expect(box).toHaveProperty('checked', true);
+    }
+    // Saving the full list as it stands is a change: the key becomes limited to it.
+    expect(screen.getByRole('button', { name: 'Save lead types' })).toHaveProperty(
+      'disabled',
+      false,
+    );
+  });
+
+  it('Cancel puts the row back as it was and saves nothing', async () => {
+    const group = await openEditor(CREDENTIAL);
+    fireEvent.click(within(group).getByRole('checkbox', { name: 'SIM order' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('button', { name: 'Save lead types' })).toBeNull();
+    expect(screen.getByText('Lead types: Internet, Mobility')).toBeTruthy();
+    expect(mocks.updateServiceCredential).not.toHaveBeenCalled();
+  });
+
+  it('keeps the editor open and says what went wrong when the save fails', async () => {
+    mocks.updateServiceCredential.mockRejectedValue(new TypeError('Failed to fetch'));
+    const group = await openEditor(CREDENTIAL);
+    fireEvent.click(within(group).getByRole('checkbox', { name: 'SIM order' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save lead types' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe(
+      "Couldn't reach the CRM to change the key’s lead types. Check your internet connection and try again.",
+    );
+    expect(screen.getByRole('button', { name: 'Save lead types' })).toHaveProperty(
+      'disabled',
+      false,
+    );
+    expect(screen.getByText('Lead types: Internet, Mobility')).toBeTruthy();
   });
 });
 

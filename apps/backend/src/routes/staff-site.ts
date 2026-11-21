@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   createServiceCredentialRequestSchema,
+  updateServiceCredentialRequestSchema,
   inviteStaffRequestSchema,
   resolveUncertainJobRequestSchema,
   MAILBOX_PAGE_SIZE,
@@ -330,6 +331,54 @@ export function createStaffSiteRoutes(context: StaffRouteContext): Router {
       });
       res.json({ credentials: records.map(credentialSummary), requestId: req.id });
     } catch (error) {
+      reportFailure(req, error);
+      sendStaffAuthError(res, req.id, 'internal_error', 500);
+    }
+  });
+
+  /** The lead types an existing key may send; the key's secret and scopes stay as they are. */
+  router.patch('/workspaces/:workspaceId/service-credentials/:credentialId', async (req, res) => {
+    const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
+    const credentialId = z.uuid().safeParse(req.params['credentialId']);
+    const body = updateServiceCredentialRequestSchema.safeParse(req.body);
+    if (!workspaceId.success || !credentialId.success || !body.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+
+    try {
+      const { actor, decision } = await decide(req, workspaceId.data, 'integration.manage');
+      if (!decision.allowed) {
+        sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
+        return;
+      }
+
+      const update = dependencies.credentialStore.updateLeadTypes?.bind(
+        dependencies.credentialStore,
+      );
+      if (!update) throw new Error('credential store cannot change lead types');
+      const result = await update({
+        actorId: actor.actorId,
+        workspaceId: workspaceId.data,
+        credentialId: credentialId.data,
+        leadTypes: body.data.leadTypes,
+        requestId: req.id,
+      });
+      if (result.status === 'not_found') {
+        sendWebsiteError(res, req.id, 'credential_not_found', 404);
+        return;
+      }
+      if (result.status === 'revoked') {
+        sendWebsiteError(res, req.id, 'credential_revoked', 409);
+        return;
+      }
+      res.json({ credential: credentialSummary(result.credential), requestId: req.id });
+    } catch (error) {
+      if (error instanceof CredentialLeadTypesUnavailableError) {
+        // Migration 0043 is not applied yet: a clean refusal, never a 500.
+        sendDomainError(res, req.id, 'credential_lead_types_unavailable', 503);
+        return;
+      }
       reportFailure(req, error);
       sendStaffAuthError(res, req.id, 'internal_error', 500);
     }

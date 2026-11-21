@@ -262,6 +262,109 @@ databaseTest('website keys are limited to their lead types', () => {
     await admin`delete from app.service_credentials where id = ${record.id}`;
   });
 
+  it('changes a key’s lead types, audits the change and limits intake to the new list', async () => {
+    const store = new DatabaseWebsiteCredentialStore(database);
+    const requestId = '84000000-0000-4000-8000-000000008461';
+    const result = await store.updateLeadTypes({
+      actorId: OWNER,
+      workspaceId: SITE,
+      credentialId: LIMITED_KEY,
+      leadTypes: ['contact_message', 'partner_application'],
+      requestId,
+    });
+    expect(result).toMatchObject({
+      status: 'updated',
+      credential: { id: LIMITED_KEY, leadTypes: ['contact_message', 'partner_application'] },
+    });
+    const audits = await admin<{ before: unknown; after: unknown; entityId: string }[]>`
+      select before, after, entity_id as "entityId" from app.audit_events
+      where workspace_id = ${SITE} and action = 'service_credential.lead_types_updated'
+        and request_id = ${requestId}
+    `;
+    expect(audits).toEqual([
+      {
+        before: { leadTypes: ['contact_message'] },
+        after: { leadTypes: ['contact_message', 'partner_application'] },
+        entityId: LIMITED_KEY,
+      },
+    ]);
+    const permits = (leadType: string) =>
+      database.withTenantTx({ workspaceId: SITE, actorId: LIMITED_KEY }, (tx) =>
+        credentialPermitsLeadType(tx, { workspaceId: SITE, credentialId: LIMITED_KEY, leadType }),
+      );
+    expect(await permits('partner_application')).toBe(true);
+    expect(await permits('internet')).toBe(false);
+
+    // The same list again writes nothing more.
+    const again = await store.updateLeadTypes({
+      actorId: OWNER,
+      workspaceId: SITE,
+      credentialId: LIMITED_KEY,
+      leadTypes: ['contact_message', 'partner_application'],
+      requestId: '84000000-0000-4000-8000-000000008462',
+    });
+    expect(again.status).toBe('updated');
+    const [count] = await admin<{ n: number }[]>`
+      select count(*)::int as n from app.audit_events
+      where workspace_id = ${SITE} and action = 'service_credential.lead_types_updated'
+    `;
+    expect(count?.n).toBe(1);
+
+    // A key that had no list can be given one.
+    const limitedNow = await store.updateLeadTypes({
+      actorId: OWNER,
+      workspaceId: SITE,
+      credentialId: UNLIMITED_KEY,
+      leadTypes: ['internet'],
+      requestId: '84000000-0000-4000-8000-000000008463',
+    });
+    expect(limitedNow).toMatchObject({
+      status: 'updated',
+      credential: { leadTypes: ['internet'] },
+    });
+
+    await setLeadTypes(LIMITED_KEY, ['contact_message']);
+    await setLeadTypes(UNLIMITED_KEY, null);
+    await admin`
+      delete from app.audit_events
+      where workspace_id = ${SITE} and action = 'service_credential.lead_types_updated'
+    `;
+  });
+
+  it('changes nothing for a revoked key, another site’s key or a database without the column', async () => {
+    const store = new DatabaseWebsiteCredentialStore(database);
+    const input = {
+      actorId: OWNER,
+      leadTypes: ['internet'],
+      requestId: '84000000-0000-4000-8000-000000008464',
+    };
+    // Another site's key is not found from this site.
+    expect(
+      await store.updateLeadTypes({ ...input, workspaceId: SITE, credentialId: BUSY_KEY }),
+    ).toEqual({ status: 'not_found' });
+
+    await admin`update app.service_credentials set revoked_at = now() where id = ${LIMITED_KEY}`;
+    try {
+      expect(
+        await store.updateLeadTypes({ ...input, workspaceId: SITE, credentialId: LIMITED_KEY }),
+      ).toEqual({ status: 'revoked' });
+    } finally {
+      await admin`update app.service_credentials set revoked_at = null where id = ${LIMITED_KEY}`;
+    }
+    const [row] = await admin<{ leadTypes: string[] }[]>`
+      select lead_types as "leadTypes" from app.service_credentials where id = ${LIMITED_KEY}
+    `;
+    expect(row?.leadTypes).toEqual(['contact_message']);
+
+    const before = new DatabaseWebsiteCredentialStore(
+      database,
+      fixedCredentialLeadTypesSchema(false),
+    );
+    await expect(
+      before.updateLeadTypes({ ...input, workspaceId: SITE, credentialId: LIMITED_KEY }),
+    ).rejects.toBeInstanceOf(CredentialLeadTypesUnavailableError);
+  });
+
   // The backend is deployed before the owner applies migration 0043.
   it('before the migration: nothing is limited, the list shows no types and no key is issued', async () => {
     const before = fixedCredentialLeadTypesSchema(false);
