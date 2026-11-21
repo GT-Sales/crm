@@ -2042,7 +2042,10 @@ describe('KeyFacts', () => {
     'lays out %i facts as wrapping cells that grow to fill their row, never a fixed grid',
     (count) => {
       render(<KeyFacts facts={Array.from({ length: count }, (_, index) => fact(index + 1))} />);
-      const strip = screen.getByRole('group', { name: 'Key facts' });
+      const group = screen.getByRole('group', { name: 'Key facts' });
+      // The group is a wrapper; the facts stay a native description list.
+      const strip = group.querySelector('dl');
+      if (!strip) throw new Error('Key facts has no description list');
       // A fixed column count left the gap colour showing as a grey block in empty cells.
       expect(strip.className).not.toMatch(/grid/);
       expect(strip.className).toContain('flex-wrap');

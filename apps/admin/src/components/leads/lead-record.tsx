@@ -134,22 +134,20 @@ export interface KeyFact {
  */
 export function KeyFacts({ facts }: { facts: readonly KeyFact[] }) {
   return (
-    <dl
-      role="group"
-      aria-label="Key facts"
-      className="flex flex-wrap gap-px overflow-hidden rounded-lg border bg-border text-sm"
-    >
-      {facts.map((fact) => (
-        <div
-          key={fact.label}
-          data-slot="key-fact"
-          className="min-w-0 flex-[1_1_9rem] bg-card px-3 py-2"
-        >
-          <dt className="text-xs text-muted-foreground">{fact.label}</dt>
-          <dd className="truncate font-medium">{fact.value}</dd>
-        </div>
-      ))}
-    </dl>
+    <div role="group" aria-label="Key facts">
+      <dl className="flex flex-wrap gap-px overflow-hidden rounded-lg border bg-border text-sm">
+        {facts.map((fact) => (
+          <div
+            key={fact.label}
+            data-slot="key-fact"
+            className="min-w-0 flex-[1_1_9rem] bg-card px-3 py-2"
+          >
+            <dt className="text-xs text-muted-foreground">{fact.label}</dt>
+            <dd className="truncate font-medium">{fact.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }
 
