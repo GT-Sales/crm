@@ -3,6 +3,8 @@ import { and, eq, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm';
 import type { R2DocumentStore } from '@gt-sales/adapters';
 import { auditEvents, draftGrants, files, leadTasks, leads, withTenantTx } from '@gt-sales/db';
 
+import { enqueueDeletedFile } from '../documents/store.js';
+
 /**
  * SEC-12, owner decision (22 Oct 2026): an order form
  * that is still `incomplete` 90 days after its last change has the visitor's
@@ -20,8 +22,17 @@ import { auditEvents, draftGrants, files, leadTasks, leads, withTenantTx } from 
  * `partnerCodeMatched`, `referrerHost`) and the order details only the offer
  * (plan, quantity, payment and commission states); and the contact link is
  * cleared, the global contact row deleted when no lead on any site still
- * references it (`app.erase_restricted_lead_data`, migration 0030). Leads
- * restricted before this existed are finished the same way, a batch per run.
+ * references it (`app.erase_restricted_lead_data`, migration 0030).
+ *
+ * Issue #109: a lead restricted by an older version of this job gets the
+ * same erasure, a batch per run. It comes back into a run while it still
+ * holds anything a draft restricted today would not (`restrictedWithLeftovers`),
+ * and the same field list (`erasedLeadFields`) is applied to it, so both
+ * generations end with the same permitted fields; once it holds nothing
+ * more it is never picked again, so a second run changes nothing. Trimming
+ * the attribution of an already restricted lead needs migration 0042 (the
+ * guard refuses it before); until that is applied those leads keep their
+ * attribution extras, are not picked for them, and the run says so.
  */
 export const ABANDONED_LEAD_RETENTION_DAYS = 90;
 /** Bounded per run so one daily tick never holds a long lock. */
@@ -39,6 +50,29 @@ const ERASED_ORDER_KEYS = [
   'activationAccount',
   'documentsOverride',
 ] as const;
+
+/**
+ * What a restricted lead's own row loses, for a draft restricted now and for
+ * one restricted by an older version of this job alike. `trimAttribution`
+ * is false only for an already restricted lead before migration 0042.
+ */
+function erasedLeadFields(trimAttribution: boolean) {
+  return {
+    fullName: null,
+    email: null,
+    phone: null,
+    countryCode: null,
+    payload: null,
+    customValues: sql`'{}'::jsonb`,
+    contactId: null,
+    ...(trimAttribution
+      ? {
+          attribution: sql`${leads.attribution} - ${sql.raw(textArray(ERASED_ATTRIBUTION_KEYS))}`,
+        }
+      : {}),
+    orderDetails: sql`${leads.orderDetails} - ${sql.raw(textArray(ERASED_ORDER_KEYS))}`,
+  };
+}
 
 type RetentionDatabase = Pick<import('@gt-sales/db').DatabaseClient, 'withTenantTx'>;
 type Tx = Parameters<Parameters<typeof withTenantTx>[1]>[0];
@@ -117,15 +151,7 @@ export class DatabaseAbandonedLeadPruner {
           restricted = await tx
             .update(leads)
             .set({
-              fullName: null,
-              email: null,
-              phone: null,
-              countryCode: null,
-              payload: null,
-              customValues: sql`'{}'::jsonb`,
-              contactId: null,
-              attribution: sql`${leads.attribution} - ${sql.raw(textArray(ERASED_ATTRIBUTION_KEYS))}`,
-              orderDetails: sql`${leads.orderDetails} - ${sql.raw(textArray(ERASED_ORDER_KEYS))}`,
+              ...erasedLeadFields(true),
               customerDataRestrictedAt: input.now,
               updatedAt: input.now,
             })
@@ -133,18 +159,31 @@ export class DatabaseAbandonedLeadPruner {
             .returning({ id: leads.id });
         }
 
-        // Leads restricted before M-2 still hold files, identities, tasks,
-        // notes or a contact link: finish a batch of them too.
-        const leftovers = await restrictedWithLeftovers(tx, input.workspaceId);
+        // Leads restricted by an older version of this job still hold what
+        // a draft restricted today loses (files, identities, tasks, notes, a
+        // contact link, custom values, attribution extras): finish a batch
+        // of them too, with the same field list. Migration 0042 is applied
+        // by hand; before it the guard refuses an attribution change on a
+        // restricted lead, so those extras wait and are not selected on.
+        const [trim] = await tx.execute<{ present: boolean }>(
+          sql`select to_regprocedure('app.restricted_lead_erased_attribution_keys()') is not null as present`,
+        );
+        const trimAttribution = trim?.present === true;
+        if (!trimAttribution) {
+          console.warn(
+            JSON.stringify({
+              event: 'restricted_attribution_trim_unavailable',
+              workspaceId: input.workspaceId,
+            }),
+          );
+        }
+        const leftovers = await restrictedWithLeftovers(tx, input.workspaceId, trimAttribution);
         const restrictedIds = new Set(restricted.map((row) => row.id));
         const finished = leftovers.filter((row) => !restrictedIds.has(row.id));
         if (finished.length > 0) {
           await tx
             .update(leads)
-            .set({
-              contactId: null,
-              orderDetails: sql`${leads.orderDetails} - ${sql.raw(textArray(ERASED_ORDER_KEYS))}`,
-            })
+            .set(erasedLeadFields(trimAttribution))
             .where(
               and(
                 eq(leads.workspaceId, input.workspaceId),
@@ -174,9 +213,21 @@ export class DatabaseAbandonedLeadPruner {
             sql`select to_regprocedure('app.erase_restricted_lead_data(uuid,uuid[],uuid[])') is not null as present`,
           );
           if (fn?.present) {
-            await tx.execute(
-              sql`select * from app.erase_restricted_lead_data(${input.workspaceId}::uuid, ${uuidArray(eraseIds)}, ${uuidArray(eraseContacts)})`,
+            // The function takes at most 1000 leads and 1000 contacts a call
+            // (`too_many_ids`), and a run can hold a full batch of newly due
+            // drafts plus older restricted leads: one call per slice of both
+            // lists. The contacts' leads were unlinked above, so a contact is
+            // decided on its own, whichever call carries it.
+            const calls = Math.ceil(
+              Math.max(eraseIds.length, eraseContacts.length) / RESTRICTED_ERASURE_BATCH,
             );
+            for (let call = 0; call < calls; call += 1) {
+              const from = call * RESTRICTED_ERASURE_BATCH;
+              const to = from + RESTRICTED_ERASURE_BATCH;
+              await tx.execute(
+                sql`select * from app.erase_restricted_lead_data(${input.workspaceId}::uuid, ${uuidArray(eraseIds.slice(from, to))}, ${uuidArray(eraseContacts.slice(from, to))})`,
+              );
+            }
           } else {
             console.warn(
               JSON.stringify({
@@ -273,6 +324,9 @@ async function eraseAiChatTurns(
   }
 }
 
+/** The 0030 function takes at most this many leads, and this many contacts, per call. */
+const RESTRICTED_ERASURE_BATCH = 1000;
+
 /** The 0039 function takes at most this many leads per call. */
 const AI_CHAT_ERASURE_BATCH = 1000;
 
@@ -286,11 +340,20 @@ function uuidArray(ids: readonly string[]) {
   return sql`${`{${ids.join(',')}}`}::uuid[]`;
 }
 
-/** Restricted leads of this site that still hold something M-2 erases. */
+/**
+ * Restricted leads of this site that still hold something a draft restricted
+ * today loses: on the row itself (`erasedLeadFields`) or in what it points at.
+ * A lead that holds none of it is not returned, which is what makes a second
+ * run a no-op and lets each run take the next batch.
+ */
 async function restrictedWithLeftovers(
   tx: Tx,
   workspaceId: string,
+  trimAttribution: boolean,
 ): Promise<{ id: string; contactId: string | null }[]> {
+  const attributionExtras = trimAttribution
+    ? sql`or jsonb_exists_any(${leads.attribution}, ${sql.raw(textArray(ERASED_ATTRIBUTION_KEYS))})`
+    : sql``;
   return tx
     .select({ id: leads.id, contactId: leads.contactId })
     .from(leads)
@@ -300,6 +363,14 @@ async function restrictedWithLeftovers(
         isNotNull(leads.customerDataRestrictedAt),
         sql`(
           ${leads.contactId} is not null
+          or ${leads.fullName} is not null
+          or ${leads.email} is not null
+          or ${leads.phone} is not null
+          or ${leads.countryCode} is not null
+          or ${leads.payload} is not null
+          or ${leads.customValues} <> '{}'::jsonb
+          or jsonb_exists_any(${leads.orderDetails}, ${sql.raw(textArray(ERASED_ORDER_KEYS))})
+          ${attributionExtras}
           or exists (select 1 from app.files f where f.workspace_id = ${leads.workspaceId}
             and f.record_type = 'lead' and f.record_id = ${leads.id} and f.status <> 'deleted')
           or exists (select 1 from app.lead_identities i where i.workspace_id = ${leads.workspaceId}
@@ -341,10 +412,12 @@ async function eraseLeadAttachments(
   // is already gone is a no-op.
   const tombstoned = await tx
     .select({
+      id: files.id,
       bucket: files.bucket,
       stagingKey: files.stagingKey,
       candidateKey: files.candidateKey,
       objectKey: files.objectKey,
+      expiresAt: files.expiresAt,
     })
     .from(files)
     .where(
@@ -357,6 +430,9 @@ async function eraseLeadAttachments(
   await tx
     .delete(leadTasks)
     .where(and(eq(leadTasks.workspaceId, workspaceId), inArray(leadTasks.leadId, leadIds)));
+  // Recorded in this transaction (#82): the deletes after commit are best
+  // effort, and the cleanup sweep retries each object until storage confirms.
+  for (const row of tombstoned) await enqueueDeletedFile(tx, workspaceId, row);
   const keys = new Map<string, { bucket: string; key: string }>();
   for (const row of tombstoned) {
     for (const key of [row.stagingKey, row.candidateKey, row.objectKey]) {

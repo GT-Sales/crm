@@ -27,7 +27,6 @@ export interface WebAnalyticsReader {
   }): Promise<WebAnalyticsOutcome>;
 }
 
-const DAY_MS = 86_400_000;
 const TIMEOUT_MS = 8_000;
 /** A report is reused this long: the page's numbers move slowly and Umami is one small server. */
 const CACHE_MS = 60_000;
@@ -61,25 +60,35 @@ function totals(value: z.infer<typeof totalsSchema> | undefined): WebAnalyticsTo
   };
 }
 
-/** `YYYY-MM-DD` of an instant in the reporting time zone. */
-/** The start of the business's day that holds this instant. */
-function startOfDay(instant: number): number {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: TIME_ZONE,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(new Date(instant));
-  const part = (type: string) => Number(parts.find((entry) => entry.type === type)?.value ?? 0);
-  const start =
-    instant -
-    (part('hour') * 3600 + part('minute') * 60 + part('second')) * 1000 -
-    (instant % 1000);
-  // The night the clocks go forward has an hour less behind it.
-  return dayOf(new Date(start)) === dayOf(new Date(instant)) ? start : start + 3_600_000;
+/** The calendar date `days` before (or, negative, after) a `YYYY-MM-DD` date. */
+function addDays(day: string, days: number): string {
+  const [year = 1970, month = 1, date = 1] = day.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, date + days)).toISOString().slice(0, 10);
 }
 
+/**
+ * The instant the business's `YYYY-MM-DD` day begins. Toronto is four or five
+ * hours behind UTC and its clocks change at 02:00, so midnight always exists
+ * and is one of those two offsets from UTC midnight; the one whose local
+ * reading is 00:00 on that date is it.
+ */
+function startOfDay(day: string): number {
+  const utcMidnight = Date.parse(`${day}T00:00:00.000Z`);
+  for (const hours of [4, 5]) {
+    const instant = utcMidnight + hours * 3_600_000;
+    const clock = new Intl.DateTimeFormat('en-GB', {
+      timeZone: TIME_ZONE,
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).format(new Date(instant));
+    if (dayOf(new Date(instant)) === day && clock === '00:00') return instant;
+  }
+  // Not reachable for this zone; the offset in force at noon keeps a report possible.
+  return utcMidnight + 5 * 3_600_000;
+}
+
+/** `YYYY-MM-DD` of an instant in the reporting time zone. */
 function dayOf(instant: Date): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: TIME_ZONE,
@@ -152,7 +161,11 @@ export function loadWebAnalyticsReader(
       const endAt = now.getTime();
       // From the start of the first day the chart shows, so the totals and
       // the days add up to the same period.
-      const startAt = startOfDay(endAt - (days - 1) * DAY_MS);
+      // Counted in calendar days, not 24-hour steps: a day is 23 or 25 hours
+      // long when the clocks change.
+      const today = dayOf(now);
+      const firstDay = addDays(today, -(days - 1));
+      const startAt = startOfDay(firstDay);
       const range = { startAt: String(startAt), endAt: String(endAt) };
       const metric = (type: string) =>
         get(websiteId, 'metrics', { ...range, type, limit: String(TOP) }, metricsSchema);
@@ -177,8 +190,7 @@ export function loadWebAnalyticsReader(
         // Every day of the period, so a day with no visits is a zero and not a gap.
         const daily: WebAnalyticsReport['daily'] = [];
         for (let offset = days - 1; offset >= 0; offset -= 1) {
-          const day = dayOf(new Date(endAt - offset * DAY_MS));
-          if (daily.at(-1)?.day === day) continue;
+          const day = addDays(today, -offset);
           daily.push({
             day,
             pageviews: viewsByDay.get(day) ?? 0,
@@ -188,8 +200,8 @@ export function loadWebAnalyticsReader(
 
         const report = webAnalyticsReportSchema.parse({
           days,
-          from: dayOf(new Date(startAt)),
-          to: dayOf(now),
+          from: firstDay,
+          to: today,
           totals: totals(stats),
           previous: totals(stats.comparison),
           daily,

@@ -29,6 +29,7 @@ import { z } from 'zod';
 import { sanitizeLogIdentifier } from '../http/logger.js';
 import { LATEST_REVIEW, currentLeadDocuments } from '../leads/documents-check.js';
 import { toLeadOrder } from '../leads/order.js';
+import { submittedAtReady } from '../leads/submitted-at-schema.js';
 import { pendingForLeads, toTrackingPendingChange } from './change-request-rows.js';
 import { hashesEqual } from './secrets.js';
 
@@ -231,8 +232,18 @@ interface TrackedLeadRow extends Record<string, unknown> {
   phone: string | null;
   payload: unknown;
   orderDetails: unknown;
-  createdAt: Date | string;
+  /** When it was submitted (#94); an order with no stamp, an imported one, its creation. */
+  submittedAt: Date | string;
   documents: unknown;
+}
+
+/**
+ * The date tracking shows and orders by (#94): when the lead was submitted,
+ * or, for an order with no stamp (imported, or from before migration 0046),
+ * when it was created. Before 0046 is applied there is no stamp to read.
+ */
+function submittedDate(ready: boolean): SQL {
+  return ready ? sql`coalesce(l.submitted_at, l.created_at)` : sql`l.created_at`;
 }
 
 const isChangeStage = (stage: string) => CHANGE_REQUEST_STAGES.some((value) => value === stage);
@@ -251,7 +262,7 @@ function toTrackingOrder(
     leadType: leadType.data,
     stage: row.stage,
     stageLabel: trackingStageWord(row.leadType, row.stage),
-    submittedAt: new Date(row.createdAt).toISOString(),
+    submittedAt: new Date(row.submittedAt).toISOString(),
     plan: order.plan
       ? {
           id: order.plan.planId,
@@ -312,6 +323,29 @@ function listable(
     }),
   );
   return undefined;
+}
+
+/** The longest reference the contract takes (`trackingReferenceSchema`). */
+const MAX_REFERENCE_LENGTH = 128;
+
+/** `internet:MS-153`: the order number with its lead type, when that still fits a reference. */
+function qualifiedReference(leadType: string, externalRef: string | null): string | undefined {
+  if (externalRef === null) return undefined;
+  const reference = `${leadType}:${externalRef}`;
+  return reference.length <= MAX_REFERENCE_LENGTH ? reference : undefined;
+}
+
+/** A reference that names an order lead type before its number, or undefined. */
+function parseQualifiedReference(
+  reference: string,
+): { leadType: string; externalRef: string } | undefined {
+  const at = reference.indexOf(':');
+  if (at <= 0) return undefined;
+  const leadType = reference.slice(0, at);
+  const externalRef = reference.slice(at + 1);
+  return orderLeadTypes.some((type) => type === leadType) && externalRef !== ''
+    ? { leadType, externalRef }
+    : undefined;
 }
 
 export class DatabaseTrackingStore implements TrackingStore {
@@ -455,6 +489,7 @@ export class DatabaseTrackingStore implements TrackingStore {
 
   listOrders(input: WebsiteScope & { normalizedEmail: string }): Promise<TrackingOrder[]> {
     return this.tx(input, async (tx) => {
+      const ready = await submittedAtReady(tx);
       const rows = await tx.execute<TrackedLeadRow>(sql`
         select
           l.id,
@@ -465,7 +500,7 @@ export class DatabaseTrackingStore implements TrackingStore {
           l.phone,
           l.payload,
           l.order_details as "orderDetails",
-          l.created_at as "createdAt",
+          ${submittedDate(ready)} as "submittedAt",
           (
             select coalesce(json_agg(json_build_object(
               'documentType', d.document_type,
@@ -481,7 +516,7 @@ export class DatabaseTrackingStore implements TrackingStore {
           ) as documents
         from app.leads l
         where ${trackable(input.workspaceId, input.normalizedEmail)}
-        order by l.created_at desc, l.id desc
+        order by ${submittedDate(ready)} desc, l.id desc
         limit ${MAX_TRACKED_ORDERS}
       `);
       const pending = await pendingForLeads(
@@ -489,6 +524,16 @@ export class DatabaseTrackingStore implements TrackingStore {
         input.workspaceId,
         rows.map((row) => row.id),
       );
+      // An order number is unique per lead type, not per customer: two orders
+      // of one email can share one across types. Those are handed out with
+      // their lead type in front, so choosing one cannot resolve to the other.
+      const sharedRefs = new Set<string>();
+      const seenRefs = new Set<string>();
+      for (const row of rows) {
+        if (row.externalRef === null) continue;
+        if (seenRefs.has(row.externalRef)) sharedRefs.add(row.externalRef);
+        seenRefs.add(row.externalRef);
+      }
       return rows.flatMap((row) => {
         const request = pending.get(row.id);
         const order = listable(
@@ -496,7 +541,13 @@ export class DatabaseTrackingStore implements TrackingStore {
           row,
           request ? toTrackingPendingChange(request) : null,
         );
-        return order ? [order] : [];
+        if (!order) return [];
+        const qualified = qualifiedReference(row.leadType, row.externalRef);
+        return [
+          row.externalRef !== null && sharedRefs.has(row.externalRef) && qualified !== undefined
+            ? { ...order, reference: qualified }
+            : order,
+        ];
       });
     });
   }
@@ -504,9 +555,14 @@ export class DatabaseTrackingStore implements TrackingStore {
   resolveLead(
     input: WebsiteScope & { normalizedEmail: string; reference: string },
   ): Promise<TrackedLeadRef | undefined> {
+    const qualified = parseQualifiedReference(input.reference);
     return this.tx(input, async (tx) => {
+      const ready = await submittedAtReady(tx);
       // The reference is the order number, or the lead id of an order that has
-      // none: matched together with the email, in one query.
+      // none: matched together with the email, in one query. A number shared by
+      // two of the customer's orders is sent with its lead type
+      // (`internet:MS-153`), which picks that order; an unqualified number
+      // still takes the newest, as before.
       const [row] = await tx.execute<{ leadId: string; leadType: string; stage: string }>(sql`
         select l.id as "leadId", l.lead_type as "leadType", l.stage
         from app.leads l
@@ -514,8 +570,19 @@ export class DatabaseTrackingStore implements TrackingStore {
           and (
             l.external_ref = ${input.reference}
             or (l.external_ref is null and l.id::text = ${input.reference})
+            ${
+              qualified
+                ? sql`or (l.lead_type = ${qualified.leadType} and l.external_ref = ${qualified.externalRef})`
+                : sql``
+            }
           )
-        order by l.created_at desc, l.id desc
+        order by
+          ${
+            qualified
+              ? sql`(l.lead_type = ${qualified.leadType} and l.external_ref = ${qualified.externalRef}) desc,`
+              : sql``
+          }
+          ${submittedDate(ready)} desc, l.id desc
         limit 1
       `);
       return row ? { leadId: row.leadId, leadType: row.leadType, stage: row.stage } : undefined;

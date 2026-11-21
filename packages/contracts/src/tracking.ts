@@ -171,7 +171,12 @@ export const trackingDocumentStateSchema = z.enum([
 ]);
 export type TrackingDocumentState = z.infer<typeof trackingDocumentStateSchema>;
 
-/** An order's reference as the customer reads it and sends it back (`MS-153`, or the lead id). */
+/**
+ * An order's reference as the customer reads it and sends it back (`MS-153`, or
+ * the lead id). Two orders of one email that share a number across lead types
+ * are handed out as `internet:MS-153` and `sim_order:MS-153`, so each reference
+ * names one order; a bare number still takes the newest.
+ */
 export const trackingReferenceSchema = z.string().trim().min(1).max(128);
 
 /** The customer's own pending change request on an order: what they asked for, by request number. */

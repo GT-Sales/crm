@@ -20,6 +20,12 @@ export const heartbeatSchema = z
     verified: z.literal(true),
     manifestKey: z.string().min(1),
     artifactCount: z.number().int().positive(),
+    /**
+     * Documents this run could not copy although its snapshot holds them as
+     * available (#86); the run still counts as complete. Absent on heartbeats
+     * from before the field.
+     */
+    missingObjectCount: z.number().int().nonnegative().optional(),
   })
   .strict();
 export type Heartbeat = z.infer<typeof heartbeatSchema>;

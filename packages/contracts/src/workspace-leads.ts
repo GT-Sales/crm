@@ -282,12 +282,17 @@ export function areValidLeadColumns(
   return columns.every((key) => allowed.has(key));
 }
 
+/**
+ * `GET /workspaces/:id/leads`: the list's filters, none of them personal. The
+ * free-text search is not one of them: it is a customer's name, email or
+ * phone, so it travels in a request body (`searchWorkspaceLeadsRequestSchema`)
+ * and never in a URL, which proxies and logs keep (issue #83).
+ */
 export const listWorkspaceLeadsQuerySchema = z.object({
   status: leadStatusSchema.optional(),
   type: leadTypeSchema.optional(),
   stage: leadStageSchema.optional(),
   assignee: leadAssigneeFilterSchema.optional(),
-  q: leadSearchSchema.optional(),
   view: leadViewSchema.optional(),
   /** Only leads with an open task due on or before this day (a follow-up due), most overdue first. */
   dueBy: leadDueBySchema.optional(),
@@ -301,10 +306,40 @@ export const listWorkspaceLeadsQuerySchema = z.object({
   pageSize: z.coerce.number().int().positive().max(200).optional(),
 });
 export type ListWorkspaceLeadsQuery = z.infer<typeof listWorkspaceLeadsQuerySchema>;
+/**
+ * What the typed client's `listLeads` takes: the list's filters and, for a
+ * search, `q`. With `q` the client posts `searchWorkspaceLeadsRequestSchema`
+ * to `/leads/search`; without it the filters go in the `GET`'s query string.
+ */
 export type ListWorkspaceLeadsQueryInput = Omit<ListWorkspaceLeadsQuery, 'where' | 'columns'> & {
+  q?: string;
   where?: string | readonly LeadPropertyFilter[];
   columns?: string | readonly string[];
 };
+
+/**
+ * `POST /workspaces/:id/leads/search`: the list again, searched. The same
+ * filters as the `GET` beside the search text, in the body (`where` and
+ * `columns` as lists, not strings), the same authorization and the same
+ * response. It reads; it changes nothing.
+ */
+export const searchWorkspaceLeadsRequestSchema = z
+  .object({
+    q: leadSearchSchema,
+    status: leadStatusSchema.optional(),
+    type: leadTypeSchema.optional(),
+    stage: leadStageSchema.optional(),
+    assignee: leadAssigneeFilterSchema.optional(),
+    view: leadViewSchema.optional(),
+    dueBy: leadDueBySchema.optional(),
+    where: leadPropertyFilterListSchema.optional(),
+    sort: leadSortSchema.optional(),
+    columns: leadColumnsListSchema.transform((keys) => [...new Set(keys)]).optional(),
+    page: z.int().positive().optional(),
+    pageSize: z.int().positive().max(200).optional(),
+  })
+  .strict();
+export type SearchWorkspaceLeadsRequest = z.infer<typeof searchWorkspaceLeadsRequestSchema>;
 
 /**
  * What the caller may do with this workspace's leads, so the admin shows only
@@ -396,15 +431,28 @@ export type ListWorkspaceLeadsResponse = z.infer<typeof listWorkspaceLeadsRespon
 export const leadBoardQuerySchema = z.object({
   type: leadTypeSchema,
   assignee: leadAssigneeFilterSchema.optional(),
-  q: leadSearchSchema.optional(),
   /** JSON-encoded array of up to 10 property filters combined with AND. */
   where: leadWhereSchema.optional(),
   perStage: z.coerce.number().int().positive().max(100).optional(),
 });
 export type LeadBoardQuery = z.infer<typeof leadBoardQuerySchema>;
+/** What the typed client's `leadBoard` takes; with `q` it posts to `/leads/board/search`. */
 export type LeadBoardQueryInput = Omit<LeadBoardQuery, 'where'> & {
+  q?: string;
   where?: string | readonly LeadPropertyFilter[];
 };
+
+/** `POST /workspaces/:id/leads/board/search`: the board, searched, with the text in the body. */
+export const searchLeadBoardRequestSchema = z
+  .object({
+    q: leadSearchSchema,
+    type: leadTypeSchema,
+    assignee: leadAssigneeFilterSchema.optional(),
+    where: leadPropertyFilterListSchema.optional(),
+    perStage: z.int().positive().max(100).optional(),
+  })
+  .strict();
+export type SearchLeadBoardRequest = z.infer<typeof searchLeadBoardRequestSchema>;
 
 export const leadBoardColumnSchema = z.object({
   stage: leadStageSchema,

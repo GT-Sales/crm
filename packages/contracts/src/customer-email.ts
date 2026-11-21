@@ -346,6 +346,52 @@ export const emailSettingsResponseSchema = z.object({
 });
 export type EmailSettingsResponse = z.infer<typeof emailSettingsResponseSchema>;
 
+/** How a customer mail went, as the delivery list and its counters name it. */
+export const EMAIL_MESSAGE_STATUSES = [
+  'queued',
+  'sent',
+  'delivered',
+  'bounced',
+  'complained',
+  'failed',
+  'uncertain',
+] as const;
+export const emailMessageStatusSchema = z.enum(EMAIL_MESSAGE_STATUSES);
+export type EmailMessageStatus = z.infer<typeof emailMessageStatusSchema>;
+
+/** One customer mail in the delivery list: never an address, subject or body. */
+export const emailDeliveryRowSchema = z.object({
+  messageId: z.string(),
+  template: z.string(),
+  status: emailMessageStatusSchema,
+  providerId: z.string().nullable(),
+  lastErrorCode: z.string().nullable(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+});
+export type EmailDeliveryRow = z.infer<typeof emailDeliveryRowSchema>;
+
+/**
+ * The delivery counters, one per outcome and never collapsed into ok/error:
+ * `queued` mail has not been handed to the provider yet, `failed` includes
+ * bounced and complained mail, `uncertain` waits for staff.
+ */
+export const emailDeliverySummarySchema = z.object({
+  queued: z.int().min(0),
+  sent: z.int().min(0),
+  delivered: z.int().min(0),
+  failed: z.int().min(0),
+  uncertain: z.int().min(0),
+});
+export type EmailDeliverySummary = z.infer<typeof emailDeliverySummarySchema>;
+
+/** `GET …/email/staff/workspaces/{workspaceId}/delivery`: the newest 200 mails and the counters. */
+export const emailDeliveryResponseSchema = z.object({
+  messages: z.array(emailDeliveryRowSchema).max(200),
+  summary: emailDeliverySummarySchema,
+});
+export type EmailDeliveryResponse = z.infer<typeof emailDeliveryResponseSchema>;
+
 /** One template as the site has it; `version` 0 is the starter text, never saved. */
 export const emailTemplateSchema = z.object({
   key: customerEmailTemplateSchema,

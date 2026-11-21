@@ -970,8 +970,13 @@ restricted it deletes their `lead_identities` (and the same ids in
 CanadaWide's legacy `public.mobility_id_uploads`, when that table exists),
 nulls the `body` of their timeline entries, and deletes the given contacts
 that no lead on any site references. The backend itself tombstones the
-leads' files and deletes their objects, deletes their tasks, clears their
-contact link and trims attribution and order details. `search_path = ''`,
+leads' files and deletes their objects (recorded in the same transaction and
+retried until storage confirms once 0045 is applied), deletes their tasks, clears their
+contact link and trims the order details. It trims the attribution extras
+(`utmTerm`, `utmContent`, `landingPath`) only as part of the update that
+restricts a draft: on a lead that is already restricted, 0001's
+`app.guard_restricted_lead` refuses that change, so leads restricted before
+this kept theirs until 0042 (below, issue #109). `search_path = ''`,
 revoked from `PUBLIC`, granted to `app_runtime` only. No table, grant or
 policy changes. Paste file:
 [`manual/0030-restricted-lead-erasure.sql`](manual/0030-restricted-lead-erasure.sql).
@@ -1511,6 +1516,407 @@ select l.id, l.external_ref, o.order_no
 --    of 2026-11-20 and any since, newest first).
 select o.order_no, o.status, o.created_at from public.orders o
  where o.created_at >= '2026-11-12T06:10:00Z' order by o.created_at desc;
+```
+
+## 0042_restricted_attribution_trim (2026-11-21, issue #109, not applied)
+
+Older restricted drafts get the same erasure as current ones (owner decision,
+21 Nov 2026). A draft restricted today loses the attribution extras
+`utmTerm`, `utmContent` and `landingPath` (free text that can carry an
+identifier) in the update that restricts it. A draft restricted by an older
+version of the job kept them, and nothing could remove them: the trigger
+function `app.guard_restricted_lead` (0001) refuses every attribution change
+on a restricted lead except emptying it. Hand-written
+(`drizzle-kit generate --custom`; its snapshot is 0041's). No table, column,
+grant on a table or policy changes; it rewrites no row.
+
+**What it changes.**
+
+- `app.restricted_lead_erased_attribution_keys()` returns the three keys
+  (`text[]`, immutable, empty `search_path`, EXECUTE revoked from `PUBLIC`
+  and granted to `app_runtime`). The guard reads it, and its presence is how
+  the backend knows 0042 is applied.
+- `app.guard_restricted_lead()` is replaced with the same body and one more
+  permitted case on its attribution line: the new attribution equals the old
+  one **without exactly those keys**. A change to any other key, a new key,
+  or a rewrite of one of the three is still `customer_data_restricted`;
+  emptying to `{}` stays allowed as before; every other column's rule is
+  unchanged. The trigger `leads_customer_restriction` itself is not touched.
+  This was chosen over extending the SECURITY DEFINER erasure (0030) because
+  it is narrower: the guard is a row trigger, so it fires for that function's
+  updates too and would have had to be relaxed either way.
+
+**To apply** (owner, Supabase SQL editor as `postgres`), in one transaction:
+the file's statements without the `--> statement-breakpoint` lines, then the
+tracker row (hash, `created_at`): `0042_restricted_attribution_trim`
+`9913bac6c49ef6f62a911b1e52677fcf0be9a8c86c75aaa3d63b81181057646a`,
+`1795291043279` (43 rows). `CREATE OR REPLACE FUNCTION` on a trigger function
+takes a brief lock on the function only; no table is locked or rewritten.
+The deploy and the migration may go in either order.
+
+- **Before it is applied** (with this backend): the daily `data_retention`
+  task still restricts abandoned drafts and finishes older restricted leads
+  (files, identities, tasks, notes, contact link, custom values, order
+  details), leaves their attribution extras, does not select a lead for
+  them, and logs `restricted_attribution_trim_unavailable` with the site id
+  on each run.
+- **After applying**: the next daily runs pick every restricted lead of a
+  site that still holds an attribution extra (or any other leftover) and
+  apply the same field list as a new restriction
+  (`retention/abandoned-leads.ts`, `erasedLeadFields`), at most 1000 leads
+  per site per run, each with a `lead.restricted_data_erased` audit event. A
+  lead that holds nothing more is never picked again, so the clean-up ends
+  by itself, resumes where it stopped after a failed run, and a later run
+  changes nothing. `customer_data_restricted_at` and `updated_at` of those
+  leads are left as they were. This is irreversible.
+- Rollback, after reverting the code: re-create `app.guard_restricted_lead()`
+  from `0001_runtime_functions.sql`, then `DROP FUNCTION
+app.restricted_lead_erased_attribution_keys();` (in that order: the guard
+  calls it). Attribution already trimmed is not brought back.
+- Verify against the schema:
+
+```sql
+select app.restricted_lead_erased_attribution_keys();   -- {utmTerm,utmContent,landingPath}
+select has_function_privilege('app_runtime', 'app.restricted_lead_erased_attribution_keys()', 'EXECUTE') as runtime,
+       has_function_privilege('public', 'app.restricted_lead_erased_attribution_keys()', 'EXECUTE') as public;  -- t, f
+select pg_get_functiondef('app.guard_restricted_lead()'::regprocedure)
+       like '%restricted_lead_erased_attribution_keys%';  -- t
+-- Once the clean-up has run for every site: 0.
+select count(*) from app.leads
+ where customer_data_restricted_at is not null
+   and jsonb_exists_any(attribution, app.restricted_lead_erased_attribution_keys());
+```
+
+## 0043_credential_lead_types and 0044_credential_lead_types_backfill (2026-11-21, issue #84, not applied)
+
+Each website key is limited to the lead types it may send (docs/PLAN.md §3
+rule 4; owner decision, 21 Nov 2026). Apply the two together, 0043 then 0044.
+
+**0043 (generated).** `app.service_credentials` gets `lead_types text[]`,
+nullable, no default (metadata-only, no rewrite). Null means "not limited".
+No grant, policy or function changes: `app_runtime` already holds SELECT,
+INSERT, UPDATE and DELETE on the table (0001), its tenant policy and FORCE
+ROW LEVEL SECURITY cover the new column, and `app.resolve_website_credential`
+is untouched (the backend reads the list inside the lead write's own
+transaction).
+
+**0044 (hand-written, `drizzle-kit generate --custom`; its snapshot is
+0043's).** One `UPDATE` that fills the column for the keys that exist, and
+only where it is still null:
+
+- a key of a site that holds leads gets the lead types of **every lead that
+  site holds**, whatever its status (drafts, submitted, archived, imported);
+  every key of a site gets the same list;
+- a key of a site with no lead gets every type registered today
+  (`sim_order`, `internet`, `mobility`, `partner_application`,
+  `contact_message`), so a site about to go live is not refused its first
+  lead. Revoked keys are filled too.
+
+**What changes for a website.** A `POST /api/v1/website/leads` or a draft
+`PATCH` for a lead type the key does not list answers `403
+lead_type_not_permitted` and stores nothing. **A form a site has but has
+never yet sent a lead from is therefore refused after 0044** (a contact form
+nobody has used, a partner application form): read the preview and correct
+the lists before or straight after applying.
+
+- **Preview, before applying** (what each key would get):
+
+```sql
+select w.slug, c.id, c.revoked_at is not null as revoked,
+       coalesce((select array_agg(distinct l.lead_type order by l.lead_type)
+                   from app.leads l where l.workspace_id = c.workspace_id),
+                array['sim_order','internet','mobility','partner_application','contact_message']) as would_get
+  from app.service_credentials c join app.workspaces w on w.id = c.workspace_id
+ order by w.slug, c.created_at;
+```
+
+- **To apply** (owner, Supabase SQL editor as `postgres`), in one
+  transaction: both files' statements, then the tracker rows (hash,
+  `created_at`): `0043_credential_lead_types`
+  `ecd9512b0fb4fce45d010829fc029d66f8d2c26ab32199e5f466d1208e3ce87d`,
+  `1795291401123`; `0044_credential_lead_types_backfill`
+  `759910fbd49e980803824ca10803e0fd704876b0ecc2604e467ebedd51ac517e`,
+  `1795291402463` (45 rows with 0042 applied
+  first).
+- **To correct a key's list** (there is no admin control for an existing
+  key; the other way is to issue a new key with the right types and revoke
+  the old one). The values must be registered lead types:
+
+```sql
+update app.service_credentials
+   set lead_types = array['internet','mobility','contact_message']
+ where id = '<key id from Settings → Integrations>';
+```
+
+- **Deploy order.** Either. This backend before the migration: no key is
+  limited (it asks the catalogue for the column,
+  `website/credential-schema.ts`, and re-asks every 5 minutes), the key list
+  shows "not limited", and issuing a key answers `503
+credential_lead_types_unavailable` rather than drop the chosen types. The
+  migration before this backend: the older backend ignores the column, and a
+  key it issues in between has a null list (not limited) until corrected as
+  above; running 0044's statement again fills it from the site's leads.
+- **After applying** (no redeploy): within 5 minutes the backend checks
+  every website create and draft save against the key's list, Settings →
+  Integrations shows each key's lead types, and a new key is issued with the
+  types the owner ticks.
+- Rollback, after reverting the code: `ALTER TABLE app.service_credentials
+DROP COLUMN lead_types;`. A backend that has seen the column keeps reading
+  it until it restarts, so restart it (or revert the code first).
+- Verify against the schema:
+
+```sql
+select is_nullable, data_type from information_schema.columns
+ where table_schema = 'app' and table_name = 'service_credentials' and column_name = 'lead_types';  -- YES, ARRAY
+select count(*) from app.service_credentials where lead_types is null;   -- 0 after 0044
+select w.slug, c.id, c.lead_types from app.service_credentials c
+  join app.workspaces w on w.id = c.workspace_id where c.revoked_at is null order by w.slug;
+```
+
+## 0045_file_object_deletions (2026-11-21, issues #82 and #108, not applied)
+
+Every storage copy of a document is deleted, and a failed delete is retried
+until storage confirms (owner decision, 21 Nov 2026). An upload leaves up to
+three objects: the uploader's staging copy, the private candidate the
+verification copies it to, and the candidate served once attached. Before
+this, a finalize kept the staging copy for good, a rejected or replaced
+change-request document lost only its served object, a staff deletion kept
+all three, and the deletes after a commit (abandoned-draft erasure, a
+decision) were tried once and only counted when they failed.
+
+**What it changes.** A new table `app.file_object_deletions`, one row per
+object to delete (site, bucket, key, the file it belonged to, a reason, when
+it may be tried, the tries, the last failure's code, when it was completed and
+how: `deleted` or `kept_referenced`), with its tenant and backup read
+policies, FORCE RLS and `SELECT, INSERT, UPDATE` for `app_runtime` (no
+DELETE: a completed row is the record that its object is gone). Two plain
+indexes for the sweep's check: `files_candidate_key_idx` (partial) on
+`app.files` and `file_revisions_object_key_idx` on `app.file_revisions`. No
+existing row changes.
+
+The backend then writes a row in the same transaction as: a finalize's attach
+(the staging copy, due five minutes after its upload link expired), a
+verification's rejection and an upload's expiry (staging and candidate),
+and every tombstone (all three keys): staff deleting a file, a change
+request's rejection and a replaced or unjoined held upload, abandoned-draft
+erasure. The scheduler's hourly `document_cleanup` deletes due rows, 100 at
+a time and at most 500 per site per run, outside any transaction; a row is
+completed only when storage answers that the object is gone (already absent
+counts). A failure keeps the row, backed off 5 minutes doubling to a day,
+logs `document_object_delete_failed` (site, code, count; never a key), and
+after five failed tries the owner gets one `document_cleanup_stuck` alert
+until they clear. Each run also enqueues up to 200 older leftovers per site
+(the backfill: the staging copy of every finalized file, every key of a
+rejected or deleted file), oldest first, until none is left; an object with a
+row is never picked again, so it resumes after a failed run and ends by
+itself.
+
+**Never a referenced object.** In the transaction that claims a row, the
+sweep checks the site's files: a key that is a file's served object (any
+status but `deleted`), the candidate of a file being verified or available,
+the staging object of an upload in progress, or a kept revision of a file not
+deleted, is completed `kept_referenced` and its object stays. Superseded
+files are `available`, so they keep their objects as before. Only keys this
+backend issued (`staging/<site>/…`, `candidate/<site>/…`) are enqueued; an
+imported document whose key already has a row is refused by the import. A
+row completed `kept_referenced` is reopened when its file is deleted later.
+
+**To apply** (owner, Supabase SQL editor as `postgres`), in one transaction:
+the file's statements without the `--> statement-breakpoint` lines, then the
+tracker row (hash, `created_at`): `0045_file_object_deletions`
+`e12f780ebb7f78c812f770fc5e40fa557ea6462dd21ea23c4c360c0fc82a15f4`,
+`1795293022511` (46 rows, after 0044). `CREATE TABLE` touches nothing live;
+each `CREATE INDEX` holds a SHARE lock on `app.files` or `app.file_revisions`
+while it builds, so uploads and reviews wait for it (reads go on): well under
+a second at a few thousand rows. The deploy and the migration may go in
+either order.
+
+- **Before it is applied** (with this backend): nothing is recorded, the
+  backend's probe asks again every five minutes, and an expired upload's
+  objects are deleted once by `document_cleanup`, as before.
+- **After applying**: within five minutes new deletions are recorded; the
+  next hourly runs work through the backlog, 200 objects per site per run,
+  then keep up. A deleted object cannot be brought back except from a backup
+  (`documents` objects of `deleted` files are only in the restore points from
+  before their deletion).
+- Rollback, after reverting the code: `drop table app.file_object_deletions;
+drop index app.files_candidate_key_idx; drop index
+app.file_revisions_object_key_idx;` and delete the tracker row. Objects already
+  deleted stay deleted.
+- Verify against the schema:
+
+```sql
+select relrowsecurity, relforcerowsecurity from pg_class
+ where oid = 'app.file_object_deletions'::regclass;                       -- t, t
+select policyname from pg_policies where tablename = 'file_object_deletions';
+  -- file_object_deletions_tenant_policy, file_object_deletions_backup_reader_read
+select has_table_privilege('app_runtime', 'app.file_object_deletions', 'UPDATE') as update,
+       has_table_privilege('app_runtime', 'app.file_object_deletions', 'DELETE') as delete;  -- t, f
+-- The backlog, per site and state (keys are opaque; this shows counts only).
+select workspace_id, outcome, count(*), max(attempts) from app.file_object_deletions
+ group by 1, 2 order by 1, 2;
+-- Stuck rows (the alert's), with their codes.
+select workspace_id, last_error, count(*) from app.file_object_deletions
+ where completed_at is null and attempts >= 5 group by 1, 2;
+```
+
+## 0046_lead_submitted_at (2026-11-21, issue #94, not applied)
+
+The customer's order tracking dates an order by when it was submitted (owner
+decision, 21 Nov 2026). It used the lead's `created_at`, the start of the
+draft, so a checkout finished days later or rescued by staff showed the
+wrong date and sorted in the wrong place.
+
+**What it changes.** `app.leads.submitted_at` (`timestamptz`, nullable; the
+generated `ADD COLUMN`, given `IF NOT EXISTS`), then one `UPDATE` that fills
+it for every lead with `status = 'submitted'` and no date yet: the earliest
+`system` `submitted` timeline entry of the lead where one exists (the
+website's submission, or staff's rescue), else its `created_at`. Imported
+legacy orders have no such entry and keep their original date. Only
+`submitted_at` is written: `updated_at` and the inbox order stay, the 0041
+mirror (on `status`) does not fire, and the restriction guard does not watch
+the column. No grant or policy changes. From then on the backend stamps it on
+the website's submission (create or save) and on a staff rescue; tracking
+shows and orders by `coalesce(submitted_at, created_at)`.
+
+**To apply** (owner, Supabase SQL editor as `postgres`), in one transaction:
+the file's statements without the `--> statement-breakpoint` lines, then the
+tracker row (hash, `created_at`): `0046_lead_submitted_at`
+`ecfc5ecc0402a06ca53948453da453a31d98f63fc97b073ffaa116e2687ee58f`, `1795293356213` (47 rows, after 0045). The
+`ADD COLUMN` only changes the catalogue (no rewrite, a brief ACCESS
+EXCLUSIVE lock); the `UPDATE` writes each submitted lead once in one
+statement, a few thousand rows today, under a second, holding those rows'
+locks until it commits (a website save or staff edit of one waits). It is
+idempotent: run again, it changes nothing. **Apply it before the deploy.**
+The backend's insert of a new lead names every column of `app.leads`,
+`submitted_at` included, so without the column every website lead creation
+fails with a 500; the probe only covers the reads and the stamp. A lead an
+older backend submits between the migration and the deploy has no stamp, so
+run the `UPDATE` once more after the deploy.
+
+- **Before it is applied** (with this backend): nothing is stamped and
+  tracking dates by `created_at`, as before; the backend's probe asks again
+  every five minutes.
+- **After applying**: tracking shows each order's submission date at once.
+- Rollback, after reverting the code: `alter table app.leads drop column
+submitted_at;` and delete the tracker row.
+- Verify against the schema:
+
+```sql
+select count(*) from app.leads where status = 'submitted' and submitted_at is null;  -- 0
+select count(*) from app.leads where status <> 'submitted' and submitted_at is not null;  -- 0
+-- Orders whose submission came later than their start (rescued or finished later).
+select count(*) from app.leads where submitted_at > created_at + interval '1 minute';
+```
+
+## 0047_one_current_document (2026-11-21, issue #81, not applied)
+
+One current file per record and document type, enforced by the database
+(owner decision, 21 Nov 2026). A file is current when it is `available`, not
+superseded and not held for a change request. Two attaches of one slot that
+overlapped could both stay current; the documents check passed if any current
+file was approved, while tracking showed the newest, so the two could
+disagree. The backend now takes a per-slot advisory lock
+(`document_slot:<site>:<record type>:<record>:<document type>`) in an attach, a
+held file's release and an import, supersedes the earlier current file and
+only then makes the new one current.
+
+**What it changes.** No table, column, grant or policy. It reconciles the
+duplicates already stored with **the newest upload wins** (`created_at`, then
+`revision`, then id): every older current file of a slot is marked
+superseded by the newest. No approval is carried over: if the newest has not
+been approved, the documents check holds the order at Delivered or Activated
+until staff review it, and it appears in the review queue. A restricted
+lead's older duplicate is tombstoned instead (0001's guard permits nothing
+else there; data retention would tombstone it anyway, and 0045's backfill
+deletes its objects). Superseded files keep their objects, as all superseded
+files do today. Then the partial unique index `files_one_current_per_slot` on
+`(workspace_id, record_type, record_id, document_type)`.
+
+**To apply** (owner, Supabase SQL editor as `postgres`), **after** deploying
+the backend that takes the slot lock (an older backend makes a file current
+before superseding and would get a 500 from the index), in one transaction:
+the file's statements without the `--> statement-breakpoint` lines, then the
+tracker row (hash, `created_at`): `0047_one_current_document`
+`9e8b9ea1acccafe584a48178c495a1a8fc5bd30b772b57261737309e9057227e`,
+`1795293817849` (48 rows, after 0046). The updates read the current files
+once and write only duplicates; the index build holds a SHARE lock on
+`app.files` (uploads, reviews and deletions wait, reads go on), well under a
+second at today's size. It is idempotent.
+
+- Before applying, count what it will change:
+
+```sql
+select workspace_id, record_type, record_id, document_type, count(*)
+  from app.files
+ where status = 'available' and superseded_by_file_id is null and not held_for_change_request
+ group by 1, 2, 3, 4 having count(*) > 1;
+```
+
+- **Before it is applied** (with this backend): new attaches already leave
+  one current file; stored duplicates stay until it runs.
+- **After applying**: the select above returns no rows, and a second current
+  file of a slot is refused.
+- Rollback: `drop index app.files_one_current_per_slot;` and delete the
+  tracker row. The supersede marks it wrote stay (the older files were already
+  out of date); to undo one, clear its `superseded_by_file_id` after dropping
+  the index.
+- Verify against the schema:
+
+```sql
+select indexdef from pg_indexes where indexname = 'files_one_current_per_slot';
+```
+
+## 0048_getcanadasim_mirror_when_eligible (2026-11-21, issue #85, not applied)
+
+A rescued Get Canada Sim order reaches the old admin once its contact is
+complete (owner decision, 21 Nov 2026). 0041 skips a submitted order with no
+name or email and only ever looked at a lead when its status changed, so an
+order staff rescued without them and completed later never reached
+`public.orders`. Hand-written (`drizzle-kit generate --custom`).
+
+**What it changes.** `app.mirror_getcanadasim_legacy_order()` (same
+signature, SECURITY DEFINER, empty `search_path`) also copies, on an UPDATE
+that changes no status, a submitted lead whose name or email was missing
+before and both are present after; the trigger
+`leads_mirror_getcanadasim_legacy` is recreated as `after insert or update of
+status, full_name, email`. The copy reads the lead's own columns (a staff
+correction writes them; `app.contacts` is never read), through 0041's
+unchanged `app.copy_getcanadasim_legacy_order`: insert only, `on conflict do
+nothing` on the id and the order number. Its BACKFILL copies, once, every
+submitted order of the site with a name and email and no `public.orders`
+row. No table, grant or policy changes.
+
+**To apply** (owner, Supabase SQL editor as `postgres`), in one transaction:
+the file's statements without the `--> statement-breakpoint` lines, then the
+tracker row (hash, `created_at`): `0048_getcanadasim_mirror_when_eligible`
+`25f16006a971ef9eaaa58ca97511608f80b5b2a129b1eab2f846358de00a4a58`, `1795294469261` (49 rows, after 0047). Replacing the function and the trigger
+holds a SHARE ROW EXCLUSIVE lock on `app.leads` for a moment (writes wait,
+reads go on). The backfill reads the site's submitted orders without a legacy
+row and inserts those, a handful at most. Re-running it changes nothing. The
+deploy and the migration may go in either order (no backend code depends on
+it).
+
+- **After applying**: 0041's verify select 3 lists only orders still missing
+  a name or email (or skipped for a number the old table holds); each is
+  copied the moment staff complete it.
+- Rollback: re-run 0041's `create function app.mirror_getcanadasim_legacy_order`
+  as `create or replace`, then `drop trigger leads_mirror_getcanadasim_legacy on
+app.leads;` and 0041's `create trigger`; delete the tracker row. Rows already
+  copied stay in `public.orders`.
+- Verify against the schema:
+
+```sql
+select pg_get_triggerdef(oid) from pg_trigger
+ where tgname = 'leads_mirror_getcanadasim_legacy';
+  -- … AFTER INSERT OR UPDATE OF status, full_name, email ON app.leads …
+-- Submitted orders still not in the old admin, and why (no name or email, or other).
+select l.id, l.external_ref,
+       nullif(btrim(l.full_name), '') is null or nullif(btrim(l.email), '') is null as contact_missing
+  from app.leads l join app.workspaces w on w.id = l.workspace_id
+ where w.slug = 'getcanadasim' and l.lead_type = 'sim_order' and l.status = 'submitted'
+   and l.customer_data_restricted_at is null
+   and not exists (select 1 from public.orders o where o.id = l.id);
 ```
 
 ## Historical CanadaWide import (2026-10-27)

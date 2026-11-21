@@ -31,6 +31,21 @@ export const documentChecklistKeySchema = z
   .regex(/^[a-z0-9_]+$/, 'lower_snake_case checklist key');
 export type DocumentChecklistKey = z.infer<typeof documentChecklistKeySchema>;
 
+/**
+ * The default document checklist, in the order staff pick them: the identity
+ * and immigration documents the current intake forms collect. The backend
+ * allows exactly these on a lead and the admin offers them as a plan's
+ * required documents; display labels stay in the admin.
+ */
+export const DEFAULT_DOCUMENT_TYPE_KEYS = [
+  'passport',
+  'visa',
+  'study_permit',
+  'work_permit',
+  'drivers_licence',
+  'provincial_id',
+] as const;
+
 /** Records an attachment can hang off. Widened as new parent records gain documents. */
 export const documentParentTypeSchema = z.enum(['lead', 'order']);
 export type DocumentParentType = z.infer<typeof documentParentTypeSchema>;

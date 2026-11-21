@@ -15,6 +15,8 @@ import { z } from 'zod';
 export const ownerAlertKinds = [
   'synthetic_check_failed',
   'backup_stale',
+  'backup_objects_missing',
+  'document_cleanup_stuck',
   'job_queue_stuck',
   'error_rate_spike',
   'catalogue_sync_failed',
@@ -65,6 +67,10 @@ function alertSubject(kind: OwnerAlertKind): string {
       return 'GT Sales CRM: intake check passing again';
     case 'backup_stale':
       return 'GT Sales CRM: backup snapshot is stale';
+    case 'backup_objects_missing':
+      return 'GT Sales CRM: backup completed without some documents';
+    case 'document_cleanup_stuck':
+      return 'GT Sales CRM: document files are not being deleted from storage';
     case 'job_queue_stuck':
       return 'GT Sales CRM: failed job queue is not draining';
     case 'error_rate_spike':

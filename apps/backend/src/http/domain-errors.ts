@@ -109,6 +109,10 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
     'Tasks without a lead are not available on this site yet. Add the task on a lead.',
   ai_models_unavailable:
     'Ask AI models cannot be saved just now; `details.reason` says why (`storage` or `catalogue`).',
+  lead_type_not_permitted:
+    'This site key is not permitted to send this lead type. Nothing was saved.',
+  credential_lead_types_unavailable:
+    'Site keys cannot be issued until the database update for lead types (migration 0043) is applied.',
   rate_limited: 'Too many requests just now. Try again shortly.',
   export_too_large:
     'Too many leads for one export; `details` gives the count and the most one export holds. Narrow the filters.',

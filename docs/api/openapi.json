@@ -194,7 +194,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -390,7 +392,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -621,7 +625,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -817,7 +823,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1076,7 +1084,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1278,7 +1288,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1517,7 +1529,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1755,7 +1769,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1816,6 +1832,20 @@
                               "type": "string",
                               "enum": ["leads:write", "uploads:customer", "tracking"]
                             }
+                          },
+                          "leadTypes": {
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z0-9_]+$"
+                                }
+                              },
+                              { "type": "null" }
+                            ]
                           },
                           "createdAt": {
                             "type": "string",
@@ -1988,7 +2018,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2045,6 +2077,20 @@
                             "type": "string",
                             "enum": ["leads:write", "uploads:customer", "tracking"]
                           }
+                        },
+                        "leadTypes": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64,
+                                "pattern": "^[a-z0-9_]+$"
+                              }
+                            },
+                            { "type": "null" }
+                          ]
                         },
                         "createdAt": {
                           "type": "string",
@@ -2217,7 +2263,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2258,9 +2306,20 @@
                       "type": "string",
                       "enum": ["leads:write", "uploads:customer", "tracking"]
                     }
+                  },
+                  "leadTypes": {
+                    "minItems": 1,
+                    "maxItems": 5,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[a-z0-9_]+$"
+                    }
                   }
                 },
-                "required": ["scopes"]
+                "required": ["scopes", "leadTypes"]
               }
             }
           }
@@ -2446,7 +2505,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2477,7 +2538,7 @@
     "/api/v1/staff/workspaces/{workspaceId}/leads": {
       "get": {
         "operationId": "listWorkspaceLeads",
-        "summary": "List leads with filters (type, stage, assignee, search, archive, follow-ups due) and attribution.",
+        "summary": "List leads with filters (type, stage, assignee, archive, follow-ups due) and attribution. A free-text search is `POST …/leads/search`; `q` here is refused.",
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
@@ -2524,12 +2585,6 @@
                 }
               ]
             }
-          },
-          {
-            "name": "q",
-            "in": "query",
-            "required": false,
-            "schema": { "type": "string", "minLength": 1, "maxLength": 100 }
           },
           {
             "name": "view",
@@ -2933,7 +2988,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2955,6 +3012,486 @@
                   "required": ["error"],
                   "additionalProperties": false
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/staff/workspaces/{workspaceId}/leads/search": {
+      "post": {
+        "operationId": "searchWorkspaceLeads",
+        "summary": "The leads list, searched: the free-text search (name, email, phone, reference) with the list filters in the body, so customer text is never in a URL. Reads only; the list's authorization and response.",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "leads": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "workspaceId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "leadType": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64,
+                            "pattern": "^[a-z0-9_]+$"
+                          },
+                          "status": { "type": "string", "enum": ["incomplete", "submitted"] },
+                          "stage": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64,
+                            "pattern": "^[a-z0-9_]+$"
+                          },
+                          "contact": {
+                            "type": "object",
+                            "properties": {
+                              "fullName": { "type": "string", "minLength": 1, "maxLength": 160 },
+                              "email": {
+                                "type": "string",
+                                "maxLength": 254,
+                                "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+                              },
+                              "phone": { "type": "string", "maxLength": 40 },
+                              "countryCode": { "type": "string", "pattern": "^[A-Z]{2}$" }
+                            },
+                            "additionalProperties": false
+                          },
+                          "contactId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "assignedActorId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "externalRef": {
+                            "anyOf": [
+                              { "type": "string", "minLength": 1, "maxLength": 128 },
+                              { "type": "null" }
+                            ]
+                          },
+                          "source": { "type": "string", "minLength": 1, "maxLength": 160 },
+                          "attribution": {
+                            "type": "object",
+                            "properties": {
+                              "utmSource": { "type": "string", "maxLength": 120 },
+                              "utmMedium": { "type": "string", "maxLength": 120 },
+                              "utmCampaign": { "type": "string", "maxLength": 120 },
+                              "utmTerm": { "type": "string", "maxLength": 120 },
+                              "utmContent": { "type": "string", "maxLength": 120 },
+                              "partnerCode": { "type": "string", "maxLength": 64 },
+                              "partnerCodeMatched": { "type": "boolean" },
+                              "landingPath": { "type": "string", "maxLength": 512 },
+                              "referrerHost": { "type": "string", "maxLength": 253 }
+                            },
+                            "additionalProperties": false
+                          },
+                          "consentVersion": {
+                            "anyOf": [{ "type": "string", "maxLength": 64 }, { "type": "null" }]
+                          },
+                          "openTaskCount": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "nextTaskDueAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "isNew": { "type": "boolean" },
+                          "countdownDate": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "properties": {
+                            "type": "object",
+                            "propertyNames": { "type": "string" },
+                            "additionalProperties": { "type": ["string", "number", "boolean"] }
+                          },
+                          "deletedAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                          },
+                          "updatedAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "workspaceId",
+                          "leadType",
+                          "status",
+                          "stage",
+                          "contact",
+                          "contactId",
+                          "assignedActorId",
+                          "externalRef",
+                          "source",
+                          "attribution",
+                          "consentVersion",
+                          "openTaskCount",
+                          "nextTaskDueAt",
+                          "deletedAt",
+                          "createdAt",
+                          "updatedAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "page": {
+                      "type": "object",
+                      "properties": {
+                        "page": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "pageSize": { "type": "integer", "exclusiveMinimum": 0, "maximum": 200 },
+                        "total": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                      },
+                      "required": ["page", "pageSize", "total"],
+                      "additionalProperties": false
+                    },
+                    "access": {
+                      "type": "object",
+                      "properties": {
+                        "contacts": { "type": "boolean" },
+                        "manage": { "type": "boolean" },
+                        "revealSensitive": { "type": "boolean" },
+                        "emailCustomer": { "type": "boolean" },
+                        "emailReplies": { "type": "boolean" },
+                        "downloadDocuments": { "type": "boolean" },
+                        "reviewDocuments": { "type": "boolean" },
+                        "overrideDocuments": { "type": "boolean" },
+                        "decideChanges": { "type": "boolean" },
+                        "export": { "type": "boolean" },
+                        "revenue": { "type": "boolean" }
+                      },
+                      "required": ["contacts", "manage"],
+                      "additionalProperties": false
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["leads", "page", "access", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "change_request_not_allowed",
+                            "external_ref_taken",
+                            "lead_id_taken",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "export_too_large",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found",
+                            "intake_check_off",
+                            "automation_limit_reached",
+                            "revision_conflict",
+                            "flow_invalid",
+                            "no_active_version",
+                            "automation_not_builtin",
+                            "automation_builtin",
+                            "activation_needs_lead_manage",
+                            "automation_version_not_found",
+                            "automation_run_not_found",
+                            "automation_archived",
+                            "email_template_not_found",
+                            "email_template_builtin",
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "conversation_limit_reached",
+                            "attachment_rejected",
+                            "attachments_unavailable",
+                            "plain_tasks_unavailable",
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "q": { "type": "string", "minLength": 1, "maxLength": 100 },
+                  "status": { "type": "string", "enum": ["incomplete", "submitted"] },
+                  "type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9_]+$"
+                  },
+                  "stage": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9_]+$"
+                  },
+                  "assignee": {
+                    "anyOf": [
+                      { "type": "string", "enum": ["me", "none"] },
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      }
+                    ]
+                  },
+                  "view": { "type": "string", "enum": ["active", "archived", "trash"] },
+                  "dueBy": {
+                    "type": "string",
+                    "format": "date",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                  },
+                  "where": {
+                    "maxItems": 10,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": { "type": "string", "pattern": "^[a-z][A-Za-z0-9_]{0,63}$" },
+                        "op": {
+                          "type": "string",
+                          "enum": ["eq", "contains", "in", "lte", "gte", "empty", "notEmpty"]
+                        },
+                        "value": {
+                          "anyOf": [
+                            { "type": "string", "maxLength": 200 },
+                            {
+                              "type": "number",
+                              "minimum": -1000000000000,
+                              "maximum": 1000000000000
+                            },
+                            { "type": "boolean" },
+                            {
+                              "minItems": 1,
+                              "maxItems": 20,
+                              "type": "array",
+                              "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["key", "op"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "sort": {
+                    "type": "string",
+                    "pattern": "^(?:createdAt|updatedAt|fullName|externalRef|prop\\.[a-z][A-Za-z0-9_]{0,63}):(?:asc|desc)$"
+                  },
+                  "columns": {
+                    "minItems": 1,
+                    "maxItems": 6,
+                    "type": "array",
+                    "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9_]{0,63}$" }
+                  },
+                  "page": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+                  "pageSize": { "type": "integer", "exclusiveMinimum": 0, "maximum": 200 }
+                },
+                "required": ["q"],
+                "additionalProperties": false
               }
             }
           }
@@ -3128,7 +3665,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -3521,7 +4060,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -3802,7 +4343,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -4532,7 +5075,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -4843,7 +5388,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -4904,12 +5451,6 @@
                 }
               ]
             }
-          },
-          {
-            "name": "q",
-            "in": "query",
-            "required": false,
-            "schema": { "type": "string", "minLength": 1, "maxLength": 100 }
           },
           {
             "name": "where",
@@ -5294,7 +5835,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -5316,6 +5859,480 @@
                   "required": ["error"],
                   "additionalProperties": false
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/staff/workspaces/{workspaceId}/leads/board/search": {
+      "post": {
+        "operationId": "searchWorkspaceLeadBoard",
+        "summary": "The board, searched: the free-text search and the board's filters in the body. Reads only; the board's authorization and response.",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "leadType": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[a-z0-9_]+$"
+                    },
+                    "columns": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "stage": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64,
+                            "pattern": "^[a-z0-9_]+$"
+                          },
+                          "total": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                          "leads": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "workspaceId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "leadType": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z0-9_]+$"
+                                },
+                                "status": { "type": "string", "enum": ["incomplete", "submitted"] },
+                                "stage": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z0-9_]+$"
+                                },
+                                "contact": {
+                                  "type": "object",
+                                  "properties": {
+                                    "fullName": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 160
+                                    },
+                                    "email": {
+                                      "type": "string",
+                                      "maxLength": 254,
+                                      "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+                                    },
+                                    "phone": { "type": "string", "maxLength": 40 },
+                                    "countryCode": { "type": "string", "pattern": "^[A-Z]{2}$" }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "contactId": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "assignedActorId": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "externalRef": {
+                                  "anyOf": [
+                                    { "type": "string", "minLength": 1, "maxLength": 128 },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "source": { "type": "string", "minLength": 1, "maxLength": 160 },
+                                "attribution": {
+                                  "type": "object",
+                                  "properties": {
+                                    "utmSource": { "type": "string", "maxLength": 120 },
+                                    "utmMedium": { "type": "string", "maxLength": 120 },
+                                    "utmCampaign": { "type": "string", "maxLength": 120 },
+                                    "utmTerm": { "type": "string", "maxLength": 120 },
+                                    "utmContent": { "type": "string", "maxLength": 120 },
+                                    "partnerCode": { "type": "string", "maxLength": 64 },
+                                    "partnerCodeMatched": { "type": "boolean" },
+                                    "landingPath": { "type": "string", "maxLength": 512 },
+                                    "referrerHost": { "type": "string", "maxLength": 253 }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "consentVersion": {
+                                  "anyOf": [
+                                    { "type": "string", "maxLength": 64 },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "openTaskCount": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "nextTaskDueAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "isNew": { "type": "boolean" },
+                                "countdownDate": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "properties": {
+                                  "type": "object",
+                                  "propertyNames": { "type": "string" },
+                                  "additionalProperties": {
+                                    "type": ["string", "number", "boolean"]
+                                  }
+                                },
+                                "deletedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "createdAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                },
+                                "updatedAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "workspaceId",
+                                "leadType",
+                                "status",
+                                "stage",
+                                "contact",
+                                "contactId",
+                                "assignedActorId",
+                                "externalRef",
+                                "source",
+                                "attribution",
+                                "consentVersion",
+                                "openTaskCount",
+                                "nextTaskDueAt",
+                                "deletedAt",
+                                "createdAt",
+                                "updatedAt"
+                              ],
+                              "additionalProperties": false
+                            }
+                          }
+                        },
+                        "required": ["stage", "total", "leads"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "access": {
+                      "type": "object",
+                      "properties": {
+                        "contacts": { "type": "boolean" },
+                        "manage": { "type": "boolean" },
+                        "revealSensitive": { "type": "boolean" },
+                        "emailCustomer": { "type": "boolean" },
+                        "emailReplies": { "type": "boolean" },
+                        "downloadDocuments": { "type": "boolean" },
+                        "reviewDocuments": { "type": "boolean" },
+                        "overrideDocuments": { "type": "boolean" },
+                        "decideChanges": { "type": "boolean" },
+                        "export": { "type": "boolean" },
+                        "revenue": { "type": "boolean" }
+                      },
+                      "required": ["contacts", "manage"],
+                      "additionalProperties": false
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["leadType", "columns", "access", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "change_request_not_allowed",
+                            "external_ref_taken",
+                            "lead_id_taken",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "export_too_large",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found",
+                            "intake_check_off",
+                            "automation_limit_reached",
+                            "revision_conflict",
+                            "flow_invalid",
+                            "no_active_version",
+                            "automation_not_builtin",
+                            "automation_builtin",
+                            "activation_needs_lead_manage",
+                            "automation_version_not_found",
+                            "automation_run_not_found",
+                            "automation_archived",
+                            "email_template_not_found",
+                            "email_template_builtin",
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "conversation_limit_reached",
+                            "attachment_rejected",
+                            "attachments_unavailable",
+                            "plain_tasks_unavailable",
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "q": { "type": "string", "minLength": 1, "maxLength": 100 },
+                  "type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9_]+$"
+                  },
+                  "assignee": {
+                    "anyOf": [
+                      { "type": "string", "enum": ["me", "none"] },
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      }
+                    ]
+                  },
+                  "where": {
+                    "maxItems": 10,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": { "type": "string", "pattern": "^[a-z][A-Za-z0-9_]{0,63}$" },
+                        "op": {
+                          "type": "string",
+                          "enum": ["eq", "contains", "in", "lte", "gte", "empty", "notEmpty"]
+                        },
+                        "value": {
+                          "anyOf": [
+                            { "type": "string", "maxLength": 200 },
+                            {
+                              "type": "number",
+                              "minimum": -1000000000000,
+                              "maximum": 1000000000000
+                            },
+                            { "type": "boolean" },
+                            {
+                              "minItems": 1,
+                              "maxItems": 20,
+                              "type": "array",
+                              "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["key", "op"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "perStage": { "type": "integer", "exclusiveMinimum": 0, "maximum": 100 }
+                },
+                "required": ["q", "type"],
+                "additionalProperties": false
               }
             }
           }
@@ -6068,6 +7085,7 @@
                                   "restored",
                                   "opened",
                                   "submitted",
+                                  "draft_saved",
                                   "customer_emailed",
                                   "customer_replied",
                                   "change_requested",
@@ -6147,6 +7165,23 @@
                                 "items": {
                                   "type": "string",
                                   "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                }
+                              },
+                              "values": {
+                                "maxItems": 50,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "key": {
+                                      "type": "string",
+                                      "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                    },
+                                    "value": { "type": "string", "maxLength": 300 },
+                                    "cut": { "type": "boolean", "const": true }
+                                  },
+                                  "required": ["key", "value"],
+                                  "additionalProperties": false
                                 }
                               },
                               "documents": {
@@ -6726,7 +7761,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -7498,6 +8535,7 @@
                                   "restored",
                                   "opened",
                                   "submitted",
+                                  "draft_saved",
                                   "customer_emailed",
                                   "customer_replied",
                                   "change_requested",
@@ -7577,6 +8615,23 @@
                                 "items": {
                                   "type": "string",
                                   "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                }
+                              },
+                              "values": {
+                                "maxItems": 50,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "key": {
+                                      "type": "string",
+                                      "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                    },
+                                    "value": { "type": "string", "maxLength": 300 },
+                                    "cut": { "type": "boolean", "const": true }
+                                  },
+                                  "required": ["key", "value"],
+                                  "additionalProperties": false
                                 }
                               },
                               "documents": {
@@ -7844,7 +8899,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -7903,6 +8960,21 @@
                         "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
                       },
                       "phone": { "type": "string", "minLength": 1, "maxLength": 40 }
+                    },
+                    "additionalProperties": false
+                  },
+                  "expectedContact": {
+                    "type": "object",
+                    "properties": {
+                      "fullName": {
+                        "anyOf": [{ "type": "string", "maxLength": 160 }, { "type": "null" }]
+                      },
+                      "email": {
+                        "anyOf": [{ "type": "string", "maxLength": 254 }, { "type": "null" }]
+                      },
+                      "phone": {
+                        "anyOf": [{ "type": "string", "maxLength": 40 }, { "type": "null" }]
+                      }
                     },
                     "additionalProperties": false
                   },
@@ -8742,6 +9814,7 @@
                                   "restored",
                                   "opened",
                                   "submitted",
+                                  "draft_saved",
                                   "customer_emailed",
                                   "customer_replied",
                                   "change_requested",
@@ -8821,6 +9894,23 @@
                                 "items": {
                                   "type": "string",
                                   "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                }
+                              },
+                              "values": {
+                                "maxItems": 50,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "key": {
+                                      "type": "string",
+                                      "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                    },
+                                    "value": { "type": "string", "maxLength": 300 },
+                                    "cut": { "type": "boolean", "const": true }
+                                  },
+                                  "required": ["key", "value"],
+                                  "additionalProperties": false
                                 }
                               },
                               "documents": {
@@ -9035,7 +10125,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -9834,6 +10926,7 @@
                                   "restored",
                                   "opened",
                                   "submitted",
+                                  "draft_saved",
                                   "customer_emailed",
                                   "customer_replied",
                                   "change_requested",
@@ -9913,6 +11006,23 @@
                                 "items": {
                                   "type": "string",
                                   "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                }
+                              },
+                              "values": {
+                                "maxItems": 50,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "key": {
+                                      "type": "string",
+                                      "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                    },
+                                    "value": { "type": "string", "maxLength": 300 },
+                                    "cut": { "type": "boolean", "const": true }
+                                  },
+                                  "required": ["key", "value"],
+                                  "additionalProperties": false
                                 }
                               },
                               "documents": {
@@ -10127,7 +11237,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -10920,6 +12032,7 @@
                                     "restored",
                                     "opened",
                                     "submitted",
+                                    "draft_saved",
                                     "customer_emailed",
                                     "customer_replied",
                                     "change_requested",
@@ -11003,6 +12116,23 @@
                                   "items": {
                                     "type": "string",
                                     "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                  }
+                                },
+                                "values": {
+                                  "maxItems": 50,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "key": {
+                                        "type": "string",
+                                        "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                      },
+                                      "value": { "type": "string", "maxLength": 300 },
+                                      "cut": { "type": "boolean", "const": true }
+                                    },
+                                    "required": ["key", "value"],
+                                    "additionalProperties": false
                                   }
                                 },
                                 "documents": {
@@ -11176,7 +12306,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -11950,6 +13082,7 @@
                                     "restored",
                                     "opened",
                                     "submitted",
+                                    "draft_saved",
                                     "customer_emailed",
                                     "customer_replied",
                                     "change_requested",
@@ -12033,6 +13166,23 @@
                                   "items": {
                                     "type": "string",
                                     "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                  }
+                                },
+                                "values": {
+                                  "maxItems": 50,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "key": {
+                                        "type": "string",
+                                        "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                      },
+                                      "value": { "type": "string", "maxLength": 300 },
+                                      "cut": { "type": "boolean", "const": true }
+                                    },
+                                    "required": ["key", "value"],
+                                    "additionalProperties": false
                                   }
                                 },
                                 "documents": {
@@ -12206,7 +13356,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12405,7 +13557,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12790,6 +13944,7 @@
                                     "restored",
                                     "opened",
                                     "submitted",
+                                    "draft_saved",
                                     "customer_emailed",
                                     "customer_replied",
                                     "change_requested",
@@ -12873,6 +14028,23 @@
                                   "items": {
                                     "type": "string",
                                     "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                  }
+                                },
+                                "values": {
+                                  "maxItems": 50,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "key": {
+                                        "type": "string",
+                                        "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                      },
+                                      "value": { "type": "string", "maxLength": 300 },
+                                      "cut": { "type": "boolean", "const": true }
+                                    },
+                                    "required": ["key", "value"],
+                                    "additionalProperties": false
                                   }
                                 },
                                 "documents": {
@@ -13046,7 +14218,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -13820,6 +14994,7 @@
                                     "restored",
                                     "opened",
                                     "submitted",
+                                    "draft_saved",
                                     "customer_emailed",
                                     "customer_replied",
                                     "change_requested",
@@ -13903,6 +15078,23 @@
                                   "items": {
                                     "type": "string",
                                     "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                  }
+                                },
+                                "values": {
+                                  "maxItems": 50,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "key": {
+                                        "type": "string",
+                                        "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                      },
+                                      "value": { "type": "string", "maxLength": 300 },
+                                      "cut": { "type": "boolean", "const": true }
+                                    },
+                                    "required": ["key", "value"],
+                                    "additionalProperties": false
                                   }
                                 },
                                 "documents": {
@@ -14076,7 +15268,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -14432,6 +15626,7 @@
                                 "restored",
                                 "opened",
                                 "submitted",
+                                "draft_saved",
                                 "customer_emailed",
                                 "customer_replied",
                                 "change_requested",
@@ -14509,6 +15704,23 @@
                               "maxItems": 50,
                               "type": "array",
                               "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9_]{0,63}$" }
+                            },
+                            "values": {
+                              "maxItems": 50,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                  },
+                                  "value": { "type": "string", "maxLength": 300 },
+                                  "cut": { "type": "boolean", "const": true }
+                                },
+                                "required": ["key", "value"],
+                                "additionalProperties": false
+                              }
                             },
                             "documents": {
                               "maxItems": 10,
@@ -14678,7 +15890,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -15060,6 +16274,7 @@
                                 "restored",
                                 "opened",
                                 "submitted",
+                                "draft_saved",
                                 "customer_emailed",
                                 "customer_replied",
                                 "change_requested",
@@ -15137,6 +16352,23 @@
                               "maxItems": 50,
                               "type": "array",
                               "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9_]{0,63}$" }
+                            },
+                            "values": {
+                              "maxItems": 50,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                  },
+                                  "value": { "type": "string", "maxLength": 300 },
+                                  "cut": { "type": "boolean", "const": true }
+                                },
+                                "required": ["key", "value"],
+                                "additionalProperties": false
+                              }
                             },
                             "documents": {
                               "maxItems": 10,
@@ -15306,7 +16538,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -15599,7 +16833,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -15913,7 +17149,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -16378,7 +17616,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -16658,7 +17898,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -17034,7 +18276,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -17440,7 +18684,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -17828,7 +19074,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -18119,7 +19367,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -18472,7 +19722,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -18723,7 +19975,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -18978,7 +20232,310 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "layout": {
+                    "type": "object",
+                    "properties": {
+                      "sections": {
+                        "minItems": 1,
+                        "maxItems": 20,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,39}$" },
+                            "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+                            "keys": {
+                              "maxItems": 200,
+                              "type": "array",
+                              "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9_]{0,63}$" }
+                            }
+                          },
+                          "required": ["id", "label", "keys"],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": ["sections"],
+                    "additionalProperties": false
+                  },
+                  "expectedVersion": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": ["layout"],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/staff/workspaces/{workspaceId}/properties/layouts": {
+      "patch": {
+        "operationId": "savePlanPropertyLayout",
+        "summary": "Save the plan record layout: the same as `savePropertyLayout` with `object=plan`, with no lead type in the path (property management).",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "object",
+            "in": "query",
+            "required": false,
+            "schema": { "default": "lead", "type": "string", "enum": ["lead", "plan"] }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "layout": {
+                      "type": "object",
+                      "properties": {
+                        "object": { "type": "string", "enum": ["lead", "plan"] },
+                        "leadType": { "type": "string" },
+                        "layout": {
+                          "type": "object",
+                          "properties": {
+                            "sections": {
+                              "minItems": 1,
+                              "maxItems": 20,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "pattern": "^[a-z0-9][a-z0-9_-]{0,39}$"
+                                  },
+                                  "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+                                  "keys": {
+                                    "maxItems": 200,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                    }
+                                  }
+                                },
+                                "required": ["id", "label", "keys"],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": ["sections"],
+                          "additionalProperties": false
+                        },
+                        "version": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                        "updatedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            },
+                            { "type": "null" }
+                          ]
+                        }
+                      },
+                      "required": ["object", "leadType", "layout", "version", "updatedAt"],
+                      "additionalProperties": false
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["layout", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "change_request_not_allowed",
+                            "external_ref_taken",
+                            "lead_id_taken",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "export_too_large",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found",
+                            "intake_check_off",
+                            "automation_limit_reached",
+                            "revision_conflict",
+                            "flow_invalid",
+                            "no_active_version",
+                            "automation_not_builtin",
+                            "automation_builtin",
+                            "activation_needs_lead_manage",
+                            "automation_version_not_found",
+                            "automation_run_not_found",
+                            "automation_archived",
+                            "email_template_not_found",
+                            "email_template_builtin",
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "conversation_limit_reached",
+                            "attachment_rejected",
+                            "attachments_unavailable",
+                            "plain_tasks_unavailable",
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -19369,7 +20926,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -19700,7 +21259,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -20141,7 +21702,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -20452,7 +22015,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -20778,7 +22343,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -21082,7 +22649,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -21468,7 +23037,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -21817,7 +23388,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -22089,7 +23662,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -22169,6 +23744,264 @@
                 },
                 "required": ["fromName", "fromAddress", "replyTo", "logoUrl", "siteUrl"],
                 "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/email/staff/workspaces/{workspaceId}/delivery": {
+      "get": {
+        "operationId": "getEmailDelivery",
+        "summary": "The site's newest 200 customer mails with how each went, and the delivery counters (queued, sent, delivered, failed, uncertain), for roles that may see mail delivery.",
+        "tags": ["email"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "messages": {
+                      "maxItems": 200,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "messageId": { "type": "string" },
+                          "template": { "type": "string" },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "queued",
+                              "sent",
+                              "delivered",
+                              "bounced",
+                              "complained",
+                              "failed",
+                              "uncertain"
+                            ]
+                          },
+                          "providerId": { "type": ["string", "null"] },
+                          "lastErrorCode": { "type": ["string", "null"] },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                          },
+                          "updatedAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                          }
+                        },
+                        "required": [
+                          "messageId",
+                          "template",
+                          "status",
+                          "providerId",
+                          "lastErrorCode",
+                          "createdAt",
+                          "updatedAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "summary": {
+                      "type": "object",
+                      "properties": {
+                        "queued": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                        "sent": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                        "delivered": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "failed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                        "uncertain": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": ["queued", "sent", "delivered", "failed", "uncertain"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["messages", "summary"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "change_request_not_allowed",
+                            "external_ref_taken",
+                            "lead_id_taken",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "export_too_large",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found",
+                            "intake_check_off",
+                            "automation_limit_reached",
+                            "revision_conflict",
+                            "flow_invalid",
+                            "no_active_version",
+                            "automation_not_builtin",
+                            "automation_builtin",
+                            "activation_needs_lead_manage",
+                            "automation_version_not_found",
+                            "automation_run_not_found",
+                            "automation_archived",
+                            "email_template_not_found",
+                            "email_template_builtin",
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "conversation_limit_reached",
+                            "attachment_rejected",
+                            "attachments_unavailable",
+                            "plain_tasks_unavailable",
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
               }
             }
           }
@@ -22458,7 +24291,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -22741,7 +24576,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -23044,7 +24881,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -23265,7 +25104,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -23479,7 +25320,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -23765,7 +25608,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -24051,7 +25896,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -26405,7 +28252,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -34023,7 +35872,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -36224,7 +38075,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -43863,7 +45716,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -51482,7 +53337,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -51951,7 +53808,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -52361,7 +54220,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -59982,7 +61843,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -70104,7 +71967,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -77725,7 +79590,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -85365,7 +87232,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -92986,7 +94855,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -100607,7 +102478,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -100842,7 +102715,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -101265,7 +103140,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -101606,7 +103483,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -104305,7 +106184,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -111187,7 +113068,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -111511,7 +113394,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -111864,7 +113749,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -112092,7 +113979,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -112310,7 +114199,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -112523,7 +114414,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -112779,7 +114672,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -112996,7 +114891,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -113199,7 +115096,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -113798,7 +115697,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -114123,7 +116024,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -114354,7 +116257,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -114594,7 +116499,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -119670,7 +121577,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -122462,7 +124371,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -123241,7 +125152,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -123764,7 +125677,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -124039,7 +125954,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -124242,7 +126159,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -124445,7 +126364,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -124683,7 +126604,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -125022,7 +126945,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -125240,7 +127165,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -125518,7 +127445,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -125846,7 +127775,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -126187,7 +128118,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -126454,7 +128387,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -126681,7 +128616,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -126928,7 +128865,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -127198,7 +129137,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -127512,7 +129453,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -127749,7 +129692,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -127959,7 +129904,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -128200,7 +130147,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -128652,7 +130601,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -128927,7 +130878,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -129207,7 +131160,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -129503,7 +131458,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },

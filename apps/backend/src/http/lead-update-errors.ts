@@ -55,6 +55,10 @@ export function sendLeadUpdateRefusal(
     case 'assignee_not_found':
       sendDomainError(res, requestId, 'assignee_not_found', 422);
       return;
+    case 'contact_conflict':
+      // The fields' names only; the admin keeps what was typed and asks for a reload.
+      sendDomainError(res, requestId, 'version_conflict', 409, { fields: outcome.fields });
+      return;
     default: {
       // A new outcome fails typecheck here; at runtime it answers 500, never hangs.
       const _unhandled: never = outcome;

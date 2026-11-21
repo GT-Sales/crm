@@ -100,16 +100,49 @@ export function rowCountsQuery(tables: readonly string[]): string {
 }
 
 /**
+ * A double-quoted name is kept only after a word that says it is a schema
+ * object, a role or the server (`constraint "leads_note_check"`, `user
+ * "postgres"`, `server at "host"`). Any other quoted text can be a value from
+ * the data (`invalid input syntax for type uuid: "<value>"`, `value "<n>" is
+ * out of range`, `syntax error at or near "<token>"`), so it is dropped.
+ */
+const NAME_KEYWORD =
+  /(?:constraint|relation|table|column|schema|function|role|user|database|index|trigger|policy|sequence|extension|view|domain|type|encoding|server at) $/;
+
+/** `"…"`, `'…'` and byte sequences of a primary error line that may hold a data value. */
+function withoutQuotedValues(line: string): string {
+  // A value that itself holds a double quote would leave a stray half behind
+  // the pairs below: cut the line at its first quote instead.
+  if ((line.match(/"/g)?.length ?? 0) % 2 === 1) {
+    const cut = line.indexOf('"');
+    return withoutQuotedValues(`${line.slice(0, cut)}"…"`);
+  }
+  return (
+    line
+      // The value a message ends with (`…for type uuid: "<value>"`) is dropped whole.
+      .replace(/(: )".*"\s*$/, '$1"…"')
+      .replace(/"[^"]*"/g, (match, offset: number, whole: string) =>
+        match === '"…"' || NAME_KEYWORD.test(whole.slice(0, offset)) ? match : '"…"',
+      )
+      .replace(/(^|[\s(:,=])'[^'\r\n]*'/g, "$1'…'")
+      .replace(/\b0x[0-9a-fA-F]{2}(?:\s+0x[0-9a-fA-F]{2})*/g, '0x…')
+  );
+}
+
+/**
  * The part of psql's stderr a restore may log: its error lines only. A load
  * error's `DETAIL:` (`Key (email)=(…)`), `CONTEXT:` (`COPY …, line N: "<row>"`),
  * `HINT:` and `LINE n:` lines (and the caret under a quoted line) carry
  * customer values, so every line that is not an error line is dropped before
- * `CommandFailedError` applies the usual credential redaction.
+ * `CommandFailedError` applies the usual credential redaction. The error
+ * lines themselves can embed a value too, so quoted values and invalid byte
+ * sequences in them are replaced; the message, and so the error class, stays.
  */
 export function psqlErrorLines(stderr: string): string {
   return stderr
     .split(/\r?\n/)
     .filter((line) => PSQL_ERROR_LINE.test(line) && !PSQL_DETAIL_LINE.test(line))
+    .map(withoutQuotedValues)
     .join('\n');
 }
 

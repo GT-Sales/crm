@@ -44,6 +44,7 @@ export interface DeliveryStatusRow {
 }
 
 export interface DeliverySummary {
+  queued: number;
   sent: number;
   delivered: number;
   failed: number;
@@ -87,6 +88,22 @@ export interface EmailStore extends EmailEligibilityChecker {
 
 type EmailDatabase = Pick<import('@gt-sales/db').DatabaseClient, 'withTenantTx'>;
 const defaultDatabase: EmailDatabase = { withTenantTx };
+
+/** The delivery counters from per-status row counts; a status it does not know counts nowhere. */
+export function summariseDelivery(
+  rows: readonly { status: string; count: number }[],
+): DeliverySummary {
+  const summary: DeliverySummary = { queued: 0, sent: 0, delivered: 0, failed: 0, uncertain: 0 };
+  for (const row of rows) {
+    if (row.status === 'queued') summary.queued += row.count;
+    else if (row.status === 'sent') summary.sent += row.count;
+    else if (row.status === 'delivered') summary.delivered += row.count;
+    else if (row.status === 'failed' || row.status === 'bounced' || row.status === 'complained')
+      summary.failed += row.count;
+    else if (row.status === 'uncertain') summary.uncertain += row.count;
+  }
+  return summary;
+}
 
 function statusValue(value: string): EmailMessageStatus {
   const known: readonly EmailMessageStatus[] = [
@@ -453,15 +470,7 @@ export class DatabaseEmailStore implements EmailStore {
         .from(emailMessages)
         .where(eq(emailMessages.workspaceId, workspaceId))
         .groupBy(emailMessages.status);
-      const summary: DeliverySummary = { sent: 0, delivered: 0, failed: 0, uncertain: 0 };
-      for (const row of rows) {
-        if (row.status === 'delivered') summary.delivered += row.count;
-        else if (row.status === 'failed' || row.status === 'bounced' || row.status === 'complained')
-          summary.failed += row.count;
-        else if (row.status === 'uncertain') summary.uncertain += row.count;
-        else summary.sent += row.count;
-      }
-      return summary;
+      return summariseDelivery(rows);
     });
   }
 

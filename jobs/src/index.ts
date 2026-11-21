@@ -557,6 +557,13 @@ export class OutboxRunner {
   private readonly now: () => Date;
   private readonly random: () => number;
   private readonly leaseId: () => string;
+  /**
+   * Where the next run starts in the site list. The sites are worked in order
+   * under one shared deadline, so a fixed order would let slow handlers on the
+   * first sites use the whole budget every run; the next run starts at the
+   * first site this one did not get to.
+   */
+  private nextStart = 0;
 
   constructor(private readonly options: OutboxRunnerOptions) {
     this.batchSize = options.batchSize ?? 20;
@@ -592,11 +599,19 @@ export class OutboxRunner {
     const deadline =
       this.runDeadlineMs > 0 ? this.now().getTime() + this.runDeadlineMs : Number.POSITIVE_INFINITY;
 
-    for (const workspaceId of workspaceIds) {
+    const first = workspaceIds.length === 0 ? 0 : this.nextStart % workspaceIds.length;
+    const ordered = [...workspaceIds.slice(first), ...workspaceIds.slice(0, first)];
+    // Positions in `ordered` before this one had their turn; the next run starts after them.
+    let reached = ordered.length;
+
+    for (const [position, workspaceId] of ordered.entries()) {
       for (let processed = 0; processed < this.batchSize; processed += 1) {
         // A job's lease starts immediately before its execution, never while
         // it waits behind other handlers. Keep the existing per-workspace cap.
-        if (this.now().getTime() >= deadline) break;
+        if (this.now().getTime() >= deadline) {
+          if (reached === ordered.length) reached = processed > 0 ? position + 1 : position;
+          break;
+        }
         const claimedAt = this.now();
         const [job] = await this.options.store.claim({
           workspaceId,
@@ -625,6 +640,10 @@ export class OutboxRunner {
         }
       }
     }
+    // Round robin: after a full pass start one site later, after a cut-off
+    // pass at the first site that was not reached.
+    this.nextStart =
+      (first + (reached === ordered.length ? 1 : reached)) % Math.max(1, ordered.length);
     return summary;
   }
 

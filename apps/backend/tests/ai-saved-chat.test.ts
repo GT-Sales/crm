@@ -343,7 +343,7 @@ describe('the scheduler’s attachment sweep', () => {
   it('leaves document cleanup’s answer unchanged without it', async () => {
     expect(
       await runDocumentCleanup(documents, { actorId: ACTOR, authorizedWorkspaceIds: [WORKSPACE] }),
-    ).toEqual({ expiredIntents: 1, deletedObjects: 2, failedDeletes: 0 });
+    ).toEqual({ expiredIntents: 1, deletedObjects: 2, failedDeletes: 0, stuckDeletions: 0 });
   });
 
   it('skips a site before 0036 and counts a failing one without stopping the documents', async () => {

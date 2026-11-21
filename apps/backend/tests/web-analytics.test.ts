@@ -94,6 +94,71 @@ describe('web analytics from Umami', () => {
     expect(new Date(Number(range.get('startAt'))).toISOString()).toBe('2026-11-08T05:00:00.000Z');
   });
 
+  it.each([
+    // [label, now, first day, start of that day in Toronto as a UTC instant]
+    ['fall-back day inside the week', '2026-11-03T17:00:00Z', '2026-10-28', '2026-10-28T04:00:00Z'],
+    ['fall-back day is the last day', '2026-11-02T04:30:00Z', '2026-10-26', '2026-10-26T04:00:00Z'],
+    [
+      'fall-back day is the first day',
+      '2026-11-07T05:30:00Z',
+      '2026-11-01',
+      '2026-11-01T04:00:00Z',
+    ],
+    [
+      'fall-back day is the first day, midday',
+      '2026-11-07T17:00:00Z',
+      '2026-11-01',
+      '2026-11-01T04:00:00Z',
+    ],
+    ['week after the fall-back day', '2026-11-08T17:00:00Z', '2026-11-02', '2026-11-02T05:00:00Z'],
+    [
+      'spring-forward day inside the week',
+      '2026-03-10T16:00:00Z',
+      '2026-03-04',
+      '2026-03-04T05:00:00Z',
+    ],
+    [
+      'spring-forward day is the first day',
+      '2026-03-14T16:00:00Z',
+      '2026-03-08',
+      '2026-03-08T05:00:00Z',
+    ],
+    [
+      'just after midnight following it',
+      '2026-03-09T04:30:00Z',
+      '2026-03-03',
+      '2026-03-03T05:00:00Z',
+    ],
+  ])(
+    'counts seven calendar days from Toronto midnight across a clock change (%s)',
+    async (_label, now, firstDay, startsAt) => {
+      const fetchMock = umami();
+      const reader = loadWebAnalyticsReader(ENV, fetchMock);
+      const outcome = await reader.read({ workspaceId: WORKSPACE, days: 7, now: new Date(now) });
+      if (outcome.status !== 'ok') throw new Error(`expected a report, got ${outcome.status}`);
+      const days = outcome.report.daily.map((entry) => entry.day);
+      expect(days).toHaveLength(7);
+      expect(days[0]).toBe(firstDay);
+      expect(outcome.report.from).toBe(firstDay);
+      // Consecutive calendar dates, none repeated or skipped.
+      days.forEach((day, index) => {
+        expect(day).toBe(
+          new Date(Date.parse(`${firstDay}T00:00:00Z`) + index * 86_400_000)
+            .toISOString()
+            .slice(0, 10),
+        );
+      });
+      // Every request starts exactly at Toronto midnight of the first day.
+      for (const call of fetchMock.mock.calls) {
+        const url = new URL(String(call[0]));
+        if (url.pathname.endsWith('/active')) continue;
+        expect(new Date(Number(url.searchParams.get('startAt'))).toISOString()).toBe(
+          new Date(startsAt).toISOString(),
+        );
+      }
+    },
+  );
+
   it('reuses a report for a minute instead of asking Umami again', async () => {
     const fetchMock = umami();
     const reader = loadWebAnalyticsReader(ENV, fetchMock);

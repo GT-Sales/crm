@@ -131,6 +131,13 @@ The `restore_report` line holds:
 - `restoreDurationMs`, `measuredLossWindowMs`: record them.
 - `manifest`: the run's deployment, `capturedAt`, source project, tool
   versions, row counts, `counts.referencedObjects` and `exclusions`.
+- `manifest.counts.missingObjects` and `manifest.missingObjects`: documents
+  the backup's snapshot held as available but could not copy (the run
+  completed with a warning, #86; absent on older runs and when none). Those
+  documents are not on the target: their file rows are restored, but opening
+  one fails. Write the list down with the incident and tell the developer;
+  an earlier run may hold them (`objects/<workspace>/<key>` in its
+  manifest).
 
 `manifest.exclusions` tells you what the restore did not bring back. It
 always lists the platform items (project settings, keys, passwords, SMTP,
@@ -280,6 +287,8 @@ under a `## Verify <date>` heading here.
 - The `mobility-ids` and `blog-images` buckets (not backed up; see
   [backup.md](backup.md), "Known gaps").
 - Staff accounts, when the run recorded `auth_data_skipped_by_operator`.
+- The documents listed in the manifest's `missingObjects`, when the run
+  completed with that warning.
 - Railway, Vercel and GitHub settings, the B2 keys and the recovery key.
 
 Recreate these from [HANDOFF.md](../HANDOFF.md) §1, [ENV.md](../ENV.md) and

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { websiteScopeNames, type WebsiteScopeName } from '@gt-sales/types';
-import type { ServiceCredentialSummary } from '@gt-sales/contracts';
+import { leadTypeCatalog, leadTypeLabel, type ServiceCredentialSummary } from '@gt-sales/contracts';
 import {
   Badge,
   Button,
@@ -30,6 +30,16 @@ const SCOPE_LABELS: Partial<Record<WebsiteScopeName, string>> = {
 
 const DEFAULT_SCOPES: readonly WebsiteScopeName[] = ['leads:write', 'uploads:customer'];
 
+/** Every registered lead type, in catalogue order: what a key may be permitted to send. */
+const LEAD_TYPES: readonly string[] = Object.keys(leadTypeCatalog);
+
+/** A key's lead types in words; a key without a list (made before they existed) is not limited. */
+function leadTypesLine(credential: ServiceCredentialSummary): string {
+  return credential.leadTypes
+    ? `Lead types: ${credential.leadTypes.map(leadTypeLabel).join(', ')}`
+    : 'Lead types: not limited (any type)';
+}
+
 export function ServiceCredentialsManager({ workspaceSlug }: { workspaceSlug: string }) {
   const staff = useStaffSession();
   const workspace = staff.workspaces.find((item) => item.slug === workspaceSlug);
@@ -38,6 +48,8 @@ export function ServiceCredentialsManager({ workspaceSlug }: { workspaceSlug: st
 
   const [credentials, setCredentials] = useState<ServiceCredentialSummary[]>([]);
   const [selectedScopes, setSelectedScopes] = useState<readonly WebsiteScopeName[]>(DEFAULT_SCOPES);
+  // None chosen to start with: a key is permitted only what the owner ticks (#84).
+  const [selectedLeadTypes, setSelectedLeadTypes] = useState<readonly string[]>([]);
   const [issuedSecret, setIssuedSecret] = useState<string>();
   const [message, setMessage] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -67,15 +79,26 @@ export function ServiceCredentialsManager({ workspaceSlug }: { workspaceSlug: st
     );
   }
 
+  function toggleLeadType(leadType: string) {
+    setSelectedLeadTypes((current) =>
+      current.includes(leadType)
+        ? current.filter((item) => item !== leadType)
+        : LEAD_TYPES.filter((item) => item === leadType || current.includes(item)),
+    );
+  }
+
+  const incomplete = selectedScopes.length === 0 || selectedLeadTypes.length === 0;
+
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!accessToken || !workspaceId || selectedScopes.length === 0 || busy) return;
+    if (!accessToken || !workspaceId || incomplete || busy) return;
     setBusy(true);
     setMessage(undefined);
     setIssuedSecret(undefined);
     try {
       const result = await createServiceCredential(accessToken, workspaceId, {
         scopes: [...selectedScopes],
+        leadTypes: [...selectedLeadTypes],
       });
       setIssuedSecret(result.secret);
       setMessage('Store this secret now — it is shown once and cannot be retrieved again.');
@@ -117,7 +140,7 @@ export function ServiceCredentialsManager({ workspaceSlug }: { workspaceSlug: st
               workspace is derived from the credential, never from the request.
             </p>
           </div>
-          <Button type="submit" size="sm" disabled={busy || selectedScopes.length === 0}>
+          <Button type="submit" size="sm" disabled={busy || incomplete}>
             {busy ? 'Working…' : 'Issue credential'}
           </Button>
         </div>
@@ -149,6 +172,37 @@ export function ServiceCredentialsManager({ workspaceSlug }: { workspaceSlug: st
                       ) : null}
                       <code className="font-mono text-[11px]">{scope}</code>
                     </span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+          <fieldset className="mt-5 space-y-2.5">
+            <legend className="text-xs font-medium text-muted-foreground">
+              Lead types this key may send
+            </legend>
+            <p className="text-xs text-muted-foreground">
+              A lead of any other type is refused and nothing is saved. Choose at least one.
+            </p>
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+              {LEAD_TYPES.map((leadType) => {
+                const checked = selectedLeadTypes.includes(leadType);
+                return (
+                  <label
+                    key={leadType}
+                    className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3.5 py-2.5 text-xs transition-colors ${
+                      checked
+                        ? 'border-foreground/30 bg-muted/60 text-foreground'
+                        : 'border-border/70 bg-background/40 text-muted-foreground hover:bg-muted/30 hover:text-foreground'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="size-3.5 rounded border-border accent-primary"
+                      checked={checked}
+                      onChange={() => toggleLeadType(leadType)}
+                    />
+                    <span className="font-medium text-foreground">{leadTypeLabel(leadType)}</span>
                   </label>
                 );
               })}
@@ -218,6 +272,7 @@ export function ServiceCredentialsManager({ workspaceSlug }: { workspaceSlug: st
                   <span className="text-xs text-muted-foreground">
                     {credential.scopes.join(', ')}
                   </span>
+                  <span className="text-xs text-muted-foreground">{leadTypesLine(credential)}</span>
                   {credential.revokedAt ? (
                     <span className="text-xs text-muted-foreground">
                       Revoked {new Date(credential.revokedAt).toISOString()}

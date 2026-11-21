@@ -575,7 +575,12 @@ databaseTest('DatabaseLeadStore', () => {
       ).toMatchObject({ status: 'updated', lead: { status: 'submitted' } });
       const after = await stageTrail(draft.lead.id);
       expect(after.stage).toBe('pending');
-      expect(after.entries).toEqual([{ kind: 'system', data: { event: 'submitted' } }]);
+      // The first save chose the plan (issue #87: a real change is on the
+      // timeline); the second repeated it and submitted, so it adds the submission alone.
+      expect(after.entries).toEqual([
+        { kind: 'system', data: { event: 'draft_saved', fields: ['plan'] } },
+        { kind: 'system', data: { event: 'submitted' } },
+      ]);
       expect(after.audits.at(-1)).toEqual({
         action: 'lead.updated',
         after: expect.objectContaining({
@@ -598,7 +603,10 @@ databaseTest('DatabaseLeadStore', () => {
       ).toMatchObject({ status: 'updated' });
       const after = await stageTrail(draft.lead.id);
       expect(after.stage).toBe('on_hold');
-      expect(after.entries).toEqual([]);
+      // No submission move; the plan the save chose is the customer's change (issue #87).
+      expect(after.entries).toEqual([
+        { kind: 'system', data: { event: 'draft_saved', fields: ['plan'] } },
+      ]);
     });
 
     test('a CanadaWide internet order is created as before', async () => {

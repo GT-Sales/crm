@@ -144,14 +144,18 @@ export function RangeCalendar({
       <div className="grid gap-6 sm:grid-cols-2">
         {[month, shiftMonth(month, 1)].map((shown, index) => (
           <div key={shown} className={cn(index === 1 && 'hidden sm:block')}>
-            <p className="mb-2 text-center text-sm font-medium">
+            <p id={`calendar-month-${shown}`} className="mb-2 text-center text-sm font-medium">
               {new Date(`${shown}T00:00:00.000Z`).toLocaleDateString('en-CA', {
                 month: 'long',
                 year: 'numeric',
                 timeZone: 'UTC',
               })}
             </p>
-            <div className="grid grid-cols-7 gap-0.5 text-center text-xs" role="grid">
+            <div
+              className="grid grid-cols-7 gap-0.5 text-center text-xs"
+              role="group"
+              aria-labelledby={`calendar-month-${shown}`}
+            >
               {['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map((label) => (
                 <span key={label} className="py-1 text-muted-foreground" aria-hidden="true">
                   {label}

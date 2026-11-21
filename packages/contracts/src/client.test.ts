@@ -1499,3 +1499,78 @@ describe('Ask AI saved chat client methods', () => {
     await expect(drifted.client.staff.getAiUsage(UUID)).rejects.toThrow();
   });
 });
+
+describe('lead search stays out of the request URL (#83)', () => {
+  const list = {
+    leads: [],
+    page: { page: 1, pageSize: 50, total: 0 },
+    access: { contacts: true, manage: true },
+    requestId: UUID,
+  };
+  const board = {
+    leadType: 'internet',
+    columns: [],
+    access: { contacts: true, manage: true },
+    requestId: UUID,
+  };
+  const filter = { key: 'permitType', op: 'eq', value: 'student' } as const;
+
+  it('posts a searched list to /leads/search with the text and the filters in the body', async () => {
+    const { client, calls } = harness(200, list);
+    await client.staff.listLeads(UUID, {
+      q: 'Avery Example',
+      type: 'sim_order',
+      where: [filter],
+      columns: ['permitType'],
+      sort: 'createdAt:desc',
+      page: 2,
+    });
+    expect(calls[0]?.method).toBe('POST');
+    expect(calls[0]?.url).toBe(
+      `https://api.example.test/api/v1/staff/workspaces/${UUID}/leads/search`,
+    );
+    expect(calls[0]?.url).not.toMatch(/avery/i);
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
+      q: 'Avery Example',
+      type: 'sim_order',
+      where: [filter],
+      columns: ['permitType'],
+      sort: 'createdAt:desc',
+      page: 2,
+    });
+  });
+
+  it('still reads an unsearched list with GET and its filters in the query', async () => {
+    const { client, calls } = harness(200, list);
+    await client.staff.listLeads(UUID, { type: 'sim_order', where: [filter], pageSize: 8 });
+    expect(calls[0]?.method).toBe('GET');
+    const url = new URL(calls[0]?.url ?? '');
+    expect(url.pathname).toBe(`/api/v1/staff/workspaces/${UUID}/leads`);
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      type: 'sim_order',
+      where: JSON.stringify([filter]),
+      pageSize: '8',
+    });
+    expect(calls[0]?.body).toBeUndefined();
+  });
+
+  it('posts a searched board to /leads/board/search', async () => {
+    const { client, calls } = harness(200, board);
+    await client.staff.leadBoard(UUID, { type: 'internet', q: 'avery@example.test', perStage: 20 });
+    expect(calls[0]?.method).toBe('POST');
+    expect(calls[0]?.url).toBe(
+      `https://api.example.test/api/v1/staff/workspaces/${UUID}/leads/board/search`,
+    );
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
+      q: 'avery@example.test',
+      type: 'internet',
+      perStage: 20,
+    });
+
+    await client.staff.leadBoard(UUID, { type: 'internet' });
+    expect(calls[1]?.method).toBe('GET');
+    expect(calls[1]?.url).toBe(
+      `https://api.example.test/api/v1/staff/workspaces/${UUID}/leads/board?type=internet`,
+    );
+  });
+});

@@ -1,0 +1,1 @@
+ALTER TABLE "app"."service_credentials" ADD COLUMN "lead_types" text[];

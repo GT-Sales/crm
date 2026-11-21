@@ -44,6 +44,7 @@ import {
   DatabaseLeadStore,
   ExternalRefTakenError,
   LeadIdTakenError,
+  LeadTypeNotPermittedError,
   OrderIntakeError,
   type LeadStore,
 } from '../leads/store.js';
@@ -281,6 +282,7 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
           consentVersion: body.data.consentVersion,
           submit: body.data.submit,
           order: body.data.order,
+          websiteCredentialId: ctx.credentialId,
           idempotency,
         });
         res.status(201).json({
@@ -292,6 +294,11 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
       } catch (error) {
         if (error instanceof IdempotencyError) {
           sendIdempotencyRefusal(res, req.id, error.code);
+          return;
+        }
+        // Issue #84: the key is not permitted this lead type; no lead was created.
+        if (error instanceof LeadTypeNotPermittedError) {
+          sendDomainError(res, req.id, error.code, 403, { field: 'leadType' });
           return;
         }
         if (error instanceof OrderIntakeError) {
@@ -412,6 +419,7 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
           consentVersion: body.data.consentVersion,
           order: body.data.order,
           submit: body.data.submit,
+          websiteCredentialId: ctx.credentialId,
           idempotency,
         });
 
@@ -425,6 +433,10 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
         }
         if (outcome.status === 'draft_submitted') {
           sendDomainError(res, req.id, 'draft_already_submitted', 409);
+          return;
+        }
+        if (outcome.status === 'lead_type_not_permitted') {
+          sendDomainError(res, req.id, 'lead_type_not_permitted', 403, { field: 'leadType' });
           return;
         }
         if (outcome.status === 'order_not_allowed' || outcome.status === 'plan_not_available') {

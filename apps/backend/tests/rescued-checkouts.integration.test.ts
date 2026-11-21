@@ -313,6 +313,13 @@ databaseTest('rescued checkouts count as submitted', () => {
     });
     expect(await move(SITE, leadId, 'cancelled')).toMatchObject({ status: 'updated' });
     expect(await leadRow(leadId)).toMatchObject({ status: 'incomplete', stage: 'cancelled' });
+    // A closing move is no submission: nothing is stamped (#94).
+    const [unstamped] = await admin<{ submittedAt: Date | null }[]>`
+      select submitted_at as "submittedAt" from app.leads where id = ${leadId}
+    `;
+    expect(unstamped?.submittedAt).toBeNull();
+    await admin`update app.leads set created_at = now() - interval '9 days' where id = ${leadId}`;
+    const submittedFrom = Date.now();
 
     const submitted = await leadStore.updateLead({
       ...website(SITE),
@@ -324,6 +331,10 @@ databaseTest('rescued checkouts count as submitted', () => {
     expect(submitted).toMatchObject({ status: 'updated' });
     const row = await leadRow(leadId);
     expect(row).toMatchObject({ status: 'submitted', stage: 'pending' });
+    const [stamped] = await admin<{ submittedAt: Date | null }[]>`
+      select submitted_at as "submittedAt" from app.leads where id = ${leadId}
+    `;
+    expect(stamped?.submittedAt?.getTime()).toBeGreaterThanOrEqual(submittedFrom - 1000);
     expect(row?.orderDetails).toMatchObject({ planId: PLAN, plan: { planId: PLAN } });
     const entries = await admin<{ id: string; actorId: string }[]>`
       select id, actor_id as "actorId" from app.lead_activities
@@ -428,7 +439,10 @@ databaseTest('rescued checkouts count as submitted', () => {
       leadType: 'sim_order',
     });
     const { leadId } = await draft(SITE, 'sim_order', { email, planId: PLAN });
+    // The draft was started weeks before staff rescued it (#94).
+    await admin`update app.leads set created_at = now() - interval '20 days' where id = ${leadId}`;
     expect(await tracking.listOrders({ ...website(SITE), normalizedEmail: email })).toEqual([]);
+    const rescuedFrom = Date.now();
     expect(await move(SITE, leadId, 'pending')).toMatchObject({ status: 'updated' });
     const after = await reports.sourceReport({
       workspaceId: SITE,
@@ -439,5 +453,11 @@ databaseTest('rescued checkouts count as submitted', () => {
     expect(after.totals.submitted).toBe(before.totals.submitted + 1);
     const listed = await tracking.listOrders({ ...website(SITE), normalizedEmail: email });
     expect(listed).toHaveLength(1);
+    // Dated by the rescue, which submitted it, not by the draft's start.
+    const [stamped] = await admin<{ submittedAt: Date | null }[]>`
+      select submitted_at as "submittedAt" from app.leads where id = ${leadId}
+    `;
+    expect(stamped?.submittedAt?.getTime()).toBeGreaterThanOrEqual(rescuedFrom - 1000);
+    expect(new Date(listed[0]?.submittedAt ?? 0).getTime()).toBe(stamped?.submittedAt?.getTime());
   });
 });

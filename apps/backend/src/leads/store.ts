@@ -39,6 +39,8 @@ import {
 } from '../email/senders.js';
 import { loadPlanForFreeze } from '../plans/store.js';
 import { sanitizeLogIdentifier } from '../http/logger.js';
+import { credentialPermitsLeadType } from '../website/credential-schema.js';
+import { draftSaveBody, draftSaveChanges } from './draft-changes.js';
 import { sanitizeAttribution } from './attribution.js';
 import {
   claimIdempotencyKey,
@@ -48,6 +50,7 @@ import {
 } from './idempotency.js';
 import { isPlanAvailable, submittedOrder, toLeadOrder } from './order.js';
 import { nextSiteNumber } from './site-counter.js';
+import { submittedAtReady } from './submitted-at-schema.js';
 import { selectLeadPage } from './staff-queries.js';
 import { generateDraftGrantToken, hashDraftGrantToken } from './token.js';
 import { checkLeadForm, checkLeadSubmit, isClosingStage, type LeadIntakeProblem } from './types.js';
@@ -100,6 +103,15 @@ function isLeadIdViolation(error: unknown): boolean {
   return false;
 }
 
+/** Issue #84: the website key is not permitted this lead type; nothing was written. */
+export class LeadTypeNotPermittedError extends Error {
+  readonly code = 'lead_type_not_permitted';
+  constructor() {
+    super('lead type not permitted for this website credential');
+    this.name = 'LeadTypeNotPermittedError';
+  }
+}
+
 export class ExternalRefTakenError extends Error {
   readonly code = 'external_ref_taken';
   constructor() {
@@ -144,6 +156,13 @@ export interface CreateLeadInput {
   /** An order lead type's plan; frozen when the lead is submitted. */
   order?: LeadOrderIntake;
   /**
+   * The website key making the lead, when one is (issue #84): its permitted
+   * lead types are checked first and a type outside them throws
+   * `LeadTypeNotPermittedError` before anything is written. Absent for the
+   * scheduler's intake check, which is no website key.
+   */
+  websiteCredentialId?: string;
+  /**
    * The hashed idempotency key and body fingerprint of a website submit. A
    * retry with both replays the first lead; a key reused with another body
    * throws `IdempotencyError`.
@@ -168,6 +187,8 @@ export type UpdateLeadOutcome =
   | { status: 'grant_invalid' }
   | { status: 'grant_expired' }
   | { status: 'draft_submitted' }
+  /** The website key is not permitted the draft's lead type (issue #84); nothing was written. */
+  | { status: 'lead_type_not_permitted' }
   /** The lead's type takes no order. */
   | { status: 'order_not_allowed' }
   /** The plan named, or the one the draft holds at submission, is not one the site sells now. */
@@ -197,6 +218,8 @@ export interface UpdateLeadInput {
   order?: LeadOrderIntake;
   /** Submit the draft with this save: its plan is frozen and the grant edits nothing more. */
   submit?: boolean;
+  /** As on `CreateLeadInput`: the saving website key, whose lead types must include the draft's. */
+  websiteCredentialId?: string;
   /** As on `CreateLeadInput`; honoured only with `submit: true`. */
   idempotency?: IdempotencyInput;
 }
@@ -585,6 +608,18 @@ export class DatabaseLeadStore implements LeadStore {
       { workspaceId: input.workspaceId, actorId: input.actorId },
       async (tx) => {
         const now = new Date();
+        // Before the claim, the number and the contact: a key that may not
+        // send this type creates nothing at all.
+        if (
+          input.websiteCredentialId !== undefined &&
+          !(await credentialPermitsLeadType(tx, {
+            workspaceId: input.workspaceId,
+            credentialId: input.websiteCredentialId,
+            leadType: input.leadType,
+          }))
+        ) {
+          throw new LeadTypeNotPermittedError();
+        }
         // The claim comes first: a concurrent duplicate waits here, on the
         // key's unique index, before touching the contact or the lead.
         let claimId: string | undefined;
@@ -632,6 +667,8 @@ export class DatabaseLeadStore implements LeadStore {
             attribution,
             consentVersion: input.consentVersion,
             ...(orderDetails ? { orderDetails } : {}),
+            // When the customer submitted it, for order tracking (#94).
+            ...(input.submit && (await submittedAtReady(tx)) ? { submittedAt: now } : {}),
           })
           .returning(summaryColumns);
         if (!leadRow) throw new Error('lead insert did not return a row');
@@ -723,6 +760,7 @@ export class DatabaseLeadStore implements LeadStore {
             leadFullName: leads.fullName,
             leadEmail: leads.email,
             leadPhone: leads.phone,
+            leadCountryCode: leads.countryCode,
             leadType: leads.leadType,
             leadPayload: leads.payload,
             orderDetails: leads.orderDetails,
@@ -745,6 +783,18 @@ export class DatabaseLeadStore implements LeadStore {
           .for('update');
 
         if (!grant) return { status: 'grant_invalid' };
+        // A draft of a type the key is no longer (or never was) permitted is
+        // neither saved nor submitted through it.
+        if (
+          input.websiteCredentialId !== undefined &&
+          !(await credentialPermitsLeadType(tx, {
+            workspaceId: input.workspaceId,
+            credentialId: input.websiteCredentialId,
+            leadType: grant.leadType,
+          }))
+        ) {
+          return { status: 'lead_type_not_permitted' };
+        }
 
         // A keyed submit claims its key under the grant lock, so a retry of
         // the same submit waits for the first and then replays it. Every
@@ -814,11 +864,13 @@ export class DatabaseLeadStore implements LeadStore {
             throw new UpdateRefused({ status: 'submission_incomplete', problem: ready.problem });
           }
         }
+        let planName: string | null = null;
         if (planId !== null && (input.order || input.submit)) {
           const found = await loadPlanForFreeze(tx, input.workspaceId, planId);
           if (!isPlanAvailable(found, grant.leadType)) {
             throw new UpdateRefused({ status: 'plan_not_available' });
           }
+          planName = found.plan.name;
           // A draft keeps the plan and quantity only; submission freezes the plan as sold now.
           updates.orderDetails = input.submit
             ? submittedOrder(found, quantity, now)
@@ -839,6 +891,8 @@ export class DatabaseLeadStore implements LeadStore {
         if (input.submit) {
           updates.status = 'submitted';
           changedFields.push('status');
+          // When the customer submitted it, for order tracking (#94).
+          if (await submittedAtReady(tx)) updates.submittedAt = now;
         }
         if (movedOnSubmit) {
           updates.stage = submittedLeadStage(grant.leadType);
@@ -896,6 +950,38 @@ export class DatabaseLeadStore implements LeadStore {
             ...(updates.orderDetails ? { order: updates.orderDetails } : {}),
           },
         });
+        // Issue #87: what the customer really changed, with the values they
+        // filled in, on the staff timeline in this same transaction. A save
+        // that changes nothing writes no entry. The values go in `body`
+        // only, which a customer's erasure nulls (see `draft-changes.ts`).
+        const changes = draftSaveChanges({
+          leadType: grant.leadType,
+          before: {
+            contact: {
+              fullName: grant.leadFullName,
+              email: grant.leadEmail,
+              phone: grant.leadPhone,
+              countryCode: grant.leadCountryCode,
+            },
+            payload: storedPayload(grant.leadPayload),
+            planId: draftOrder.planId,
+            quantity: draftOrder.quantity,
+          },
+          contact: input.contact,
+          form: input.form,
+          order: input.order,
+          planName,
+        });
+        if (changes.fields.length > 0) {
+          await tx.insert(leadActivities).values({
+            workspaceId: input.workspaceId,
+            leadId: input.leadId,
+            actorId: input.actorId,
+            kind: 'system',
+            body: draftSaveBody(changes.values),
+            data: { event: 'draft_saved', fields: changes.fields },
+          });
+        }
         const moved = movedOnSubmit
           ? await recordSubmittedMove(tx, input, input.leadId)
           : undefined;

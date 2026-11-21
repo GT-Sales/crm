@@ -37,6 +37,7 @@ import {
   type LeadAssigneeFilter,
   type LeadBoardColumn,
   type LeadContactEdit,
+  type LeadContactExpected,
   type LeadDetail,
   type LeadForm,
   type LeadOrder,
@@ -69,6 +70,7 @@ import { loadPlanForFreeze } from '../plans/store.js';
 import { findMissingDocuments } from './documents-check.js';
 import { isPlanAvailable, submittedOrder, toLeadOrder } from './order.js';
 import { planStageMove, todayInToronto, type StageMoveRefusal } from './stage-move.js';
+import { submittedAtReady } from './submitted-at-schema.js';
 import { isClosingStage } from './types.js';
 import {
   DatabasePlainTaskSchemaProbe,
@@ -124,7 +126,9 @@ export type UpdateLeadWorkOutcome =
   /** The required documents of the order's plan that have no approved current file. */
   | { status: 'documents_incomplete'; missing: string[] }
   /** An override reason was given but is blank. */
-  | { status: 'document_override_reason_required' };
+  | { status: 'document_override_reason_required' }
+  /** Contact fields someone else changed since the editor opened (`expectedContact`); names only. */
+  | { status: 'contact_conflict'; fields: string[] };
 
 export type ArchiveLeadOutcome =
   | {
@@ -211,6 +215,12 @@ export interface UpdateLeadWorkInput extends WriteScope {
   /** `null` unassigns; `undefined` leaves the assignee alone. */
   assignedActorId?: string | null;
   contact?: LeadContactEdit;
+  /**
+   * With `contact`: the values the editor opened with. A saved field whose
+   * value is no longer this is refused (`contact_conflict`), so a stale editor
+   * never undoes a colleague's correction (#89). Absent, nothing is checked.
+   */
+  expectedContact?: LeadContactExpected;
   /** Corrections to the form's editable fields; null clears one. */
   form?: Record<string, string | number | boolean | null>;
   /** New values of the site's custom properties; null clears one. */
@@ -902,6 +912,18 @@ export async function applyLeadUpdate(
   if (!lead) return { status: 'not_found' };
   if (lead.trashed) return { status: 'trashed' };
   const { automation } = input;
+  // #89: checked first, before a rescue or an order edit does any work.
+  const expected = input.expectedContact;
+  if (input.contact && expected) {
+    const contactEdit = input.contact;
+    const stale = CONTACT_FIELDS.filter(
+      (field) =>
+        contactEdit[field] !== undefined &&
+        expected[field] !== undefined &&
+        (expected[field] ?? null) !== (lead[field] ?? null),
+    );
+    if (stale.length > 0) return { status: 'contact_conflict', fields: stale };
+  }
 
   const set: Partial<typeof leads.$inferInsert> = {};
   const entries: Array<{ kind: string; data: Record<string, unknown> }> = [];
@@ -944,6 +966,8 @@ export async function applyLeadUpdate(
     ) {
       rescue = true;
       set.status = 'submitted';
+      // The rescue is the submission: tracking dates the order by it (#94).
+      if (await submittedAtReady(tx)) set.submittedAt = new Date();
       before['status'] = lead.status;
       after['status'] = 'submitted';
       entries.push({ kind: 'system', data: { event: 'submitted' } });

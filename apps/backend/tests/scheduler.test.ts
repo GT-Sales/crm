@@ -1,7 +1,9 @@
+import { FakeOwnerAlertChannel } from '@gt-sales/adapters';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { MachineRegistry, type MachineRegistryConfig } from '../src/machines/registry.js';
 import {
+  alertStuckDeletions,
   createBackendScheduler,
   createScheduler,
   INTAKE_CHECK_INTERVAL_MS,
@@ -53,6 +55,51 @@ it('alerts for a persisted failed queue even when later runs process nothing', a
     expect(alerts.send).toHaveBeenCalledWith(
       expect.objectContaining({ detail: 'failed:1,uncertain:0' }),
     );
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('retries the queue warning on the next tick when its delivery failed, then warns once', async () => {
+  vi.useFakeTimers();
+  try {
+    vi.setSystemTime(0);
+    let state: QueueHealthState = INITIAL_QUEUE_HEALTH_STATE;
+    const jobs = {
+      run: vi.fn(async () => ({ failed: 0, uncertain: 0 })),
+      queueHealth: vi.fn(async () => ({ failed: 1, uncertain: 0 })),
+    };
+    const delivered: string[] = [];
+    let attempts = 0;
+    const alerts = {
+      send: vi.fn(async (alert: { detail: string }) => {
+        attempts += 1;
+        if (attempts === 1) throw new Error('mail provider down');
+        delivered.push(alert.detail);
+      }),
+    };
+    const input = { authorizedWorkspaceIds: [WORKSPACE], actorId: ACTOR };
+    const tick = () =>
+      runOutboxWithQueueMonitor(
+        jobs,
+        alerts,
+        input,
+        (next) => {
+          state = next;
+        },
+        () => state,
+      );
+    await tick();
+    vi.setSystemTime(10 * 60_000);
+    await tick(); // the first delivery fails
+    expect(delivered).toEqual([]);
+    vi.setSystemTime(11 * 60_000);
+    await tick(); // retried and delivered
+    expect(delivered).toEqual(['failed:1,uncertain:0']);
+    vi.setSystemTime(12 * 60_000);
+    await tick(); // delivered once: no repeat
+    expect(delivered).toHaveLength(1);
+    expect(alerts.send).toHaveBeenCalledTimes(2);
   } finally {
     vi.useRealTimers();
   }
@@ -565,7 +612,12 @@ describe('runDocumentCleanup', () => {
   it('sweeps each authorized workspace once and totals the result', async () => {
     const sweepExpired = vi.fn(async ({ workspaceId }: { workspaceId: string }) =>
       workspaceId === 'w1'
-        ? { expiredIntents: 2, deletedObjects: 3, failedDeletes: 1 }
+        ? {
+            expiredIntents: 2,
+            deletedObjects: 3,
+            failedDeletes: 1,
+            pendingDeletions: { backfilled: 0, deleted: 3, failed: 1, keptReferenced: 0, stuck: 2 },
+          }
         : { expiredIntents: 1, deletedObjects: 1, failedDeletes: 0 },
     );
     const result = await runDocumentCleanup(
@@ -573,7 +625,35 @@ describe('runDocumentCleanup', () => {
       { actorId: 'actor', authorizedWorkspaceIds: ['w1', 'w2', 'w1'] },
     );
     expect(sweepExpired).toHaveBeenCalledTimes(2);
-    expect(result).toEqual({ expiredIntents: 3, deletedObjects: 4, failedDeletes: 1 });
+    expect(result).toEqual({
+      expiredIntents: 3,
+      deletedObjects: 4,
+      failedDeletes: 1,
+      stuckDeletions: 2,
+    });
+  });
+
+  it('alerts the owner once while document deletions stay stuck, and again after they cleared (#82)', async () => {
+    const alerts = new FakeOwnerAlertChannel();
+    const stuck = { expiredIntents: 0, deletedObjects: 0, failedDeletes: 1, stuckDeletions: 3 };
+    const clear = { ...stuck, stuckDeletions: 0 };
+    let state = await alertStuckDeletions(alerts, stuck, { alerted: false });
+    state = await alertStuckDeletions(alerts, stuck, state);
+    expect(alerts.sent.map((alert) => [alert.kind, alert.detail])).toEqual([
+      ['document_cleanup_stuck', 'stuck_deletions:3'],
+    ]);
+    state = await alertStuckDeletions(alerts, clear, state);
+    expect(state).toEqual({ alerted: false });
+    await alertStuckDeletions(alerts, stuck, state);
+    expect(alerts.sent).toHaveLength(2);
+    // An undelivered alert is tried again next time.
+    const failing = { send: vi.fn(async () => Promise.reject(new Error('down'))) };
+    expect(await alertStuckDeletions(failing, stuck, { alerted: false })).toEqual({
+      alerted: false,
+    });
+    expect(
+      await alertStuckDeletions(alerts, { skipped: 'feature_not_ready' }, { alerted: true }),
+    ).toEqual({ alerted: false });
   });
 
   it('does nothing when document storage is not configured', async () => {

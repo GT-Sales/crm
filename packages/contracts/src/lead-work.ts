@@ -90,12 +90,28 @@ const activityBase = {
   automationName: z.string().min(1).max(80).optional(),
 };
 
+/** A value a customer filled in is kept on the timeline cut to this many characters. */
+export const DRAFT_SAVE_VALUE_MAX = 300;
+
+/**
+ * One changed field of a customer's draft save with its new value in words
+ * (`draft_saved`); `value` is empty when the customer cleared the field and
+ * `cut` marks one longer than the timeline keeps.
+ */
+export const draftSaveValueSchema = z.object({
+  key: activityFieldKeySchema,
+  value: z.string().max(DRAFT_SAVE_VALUE_MAX),
+  cut: z.literal(true).optional(),
+});
+export type DraftSaveValue = z.infer<typeof draftSaveValueSchema>;
+
 /**
  * One timeline entry. The timeline is append-only: a change is a new entry,
- * never an edit of an old one. Edits record which fields changed (the
+ * never an edit of an old one. Staff edits record which fields changed (the
  * contact's `fullName`, `email`, `phone`, or a form field's key), never their
- * values, so the history holds no personal data a later erasure would have to
- * rewrite.
+ * values. The entries that do hold a customer's words (a note, a mail's kept
+ * text, the values of a customer's draft save) keep them in the row's `body`,
+ * which a customer's erasure nulls; the entry itself stays.
  */
 export const leadActivitySchema = z.discriminatedUnion('kind', [
   z.object({ ...activityBase, kind: z.literal('note'), body: z.string().min(1).max(4000) }),
@@ -142,13 +158,18 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
      * decided, by the website's `requestNo`; `documents_override`: staff
      * moved the order on without the `missing` documents, for `reason`;
      * `submitted`: the website submitted the order and it moved from
-     * Incomplete to Pending (a SIM order), by the website's credential.
+     * Incomplete to Pending (a SIM order), by the website's credential;
+     * `draft_saved`: the customer changed their unfinished form on the
+     * website (issue #87): `fields` names what really changed and `values`
+     * carries the new values, by the website's credential. A save that
+     * changes nothing writes no entry.
      */
     event: z.enum([
       'trashed',
       'restored',
       'opened',
       'submitted',
+      'draft_saved',
       'customer_emailed',
       'customer_replied',
       'change_requested',
@@ -183,9 +204,19 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
     /**
      * For `change_requested`, `change_approved` and `change_rejected`: the
      * fields asked to change, applied or turned down (contact or form keys,
-     * `planId`), never their values.
+     * `planId`), never their values. For `draft_saved`: the fields the
+     * customer's save changed (contact keys, form keys, the order's `plan`
+     * and `quantity`).
      */
     fields: z.array(activityFieldKeySchema).max(50).optional(),
+    /**
+     * For `draft_saved`: the new values of the changed fields that may be
+     * shown, in `fields` order. Personal data: served only with the rest of
+     * the timeline (contact visibility) and absent once the customer's data
+     * is erased. A sensitive field, one the site hides and one the catalogue
+     * does not know are named in `fields` and never appear here.
+     */
+    values: z.array(draftSaveValueSchema).max(50).optional(),
     /** For `change_requested`, `change_approved` and `change_rejected`: the documents sent with it. */
     documents: z.array(documentChecklistKeySchema).max(10).optional(),
     /**
@@ -332,6 +363,22 @@ export const leadContactEditSchema = z
 export type LeadContactEdit = z.infer<typeof leadContactEditSchema>;
 
 /**
+ * The contact values the editor opened with, for the fields it saves: a save
+ * whose field was changed by someone else since then is refused
+ * (`409 version_conflict`, `details.fields`) instead of undoing their change
+ * (#89). Null is a field that was empty. Optional, for callers that check
+ * staleness their own way (an Ask AI card).
+ */
+export const leadContactExpectedSchema = z
+  .object({
+    fullName: z.string().max(160).nullable().optional(),
+    email: z.string().max(254).nullable().optional(),
+    phone: z.string().max(40).nullable().optional(),
+  })
+  .strict();
+export type LeadContactExpected = z.infer<typeof leadContactExpectedSchema>;
+
+/**
  * `PATCH /workspaces/:id/leads/:leadId`: any of stage, assignee, contact,
  * form corrections, custom values and order details, at least one. `form`
  * holds the type's editable fields (`leadFields`), each a new value or null
@@ -342,6 +389,8 @@ export const updateWorkspaceLeadRequestSchema = z
     stage: leadStageSchema.optional(),
     assignedActorId: z.uuid().nullable().optional(),
     contact: leadContactEditSchema.optional(),
+    /** With `contact`: each saved field's value when the editor opened. */
+    expectedContact: leadContactExpectedSchema.optional(),
     form: leadFormEditSchema.optional(),
     /** New values of custom properties by key, each a value or null to clear it. */
     customValues: z
@@ -361,6 +410,10 @@ export const updateWorkspaceLeadRequestSchema = z
   .refine((value) => value.documentsOverrideReason === undefined || value.stage !== undefined, {
     message: 'an override reason needs a stage',
     path: ['documentsOverrideReason'],
+  })
+  .refine((value) => value.expectedContact === undefined || value.contact !== undefined, {
+    message: 'an expected contact needs a contact',
+    path: ['expectedContact'],
   })
   .refine(
     (value) =>

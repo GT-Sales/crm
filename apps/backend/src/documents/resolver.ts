@@ -1,6 +1,6 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { leads, withTenantTx } from '@gt-sales/db';
-import type { DocumentParentType } from '@gt-sales/contracts';
+import { DEFAULT_DOCUMENT_TYPE_KEYS, type DocumentParentType } from '@gt-sales/contracts';
 
 import type { DocumentContextResolver } from './service.js';
 
@@ -11,14 +11,7 @@ type DocumentDatabase = Pick<import('@gt-sales/db').DatabaseClient, 'withTenantT
  * supplies a per-type checklist. Kept deliberately narrow: identity and
  * immigration documents the current intake forms actually collect.
  */
-export const DEFAULT_LEAD_DOCUMENT_TYPES: readonly string[] = [
-  'passport',
-  'visa',
-  'study_permit',
-  'work_permit',
-  'drivers_licence',
-  'provincial_id',
-];
+export const DEFAULT_LEAD_DOCUMENT_TYPES: readonly string[] = DEFAULT_DOCUMENT_TYPE_KEYS;
 
 /**
  * Reads the document context from the tenant DB. Everything runs under tenant

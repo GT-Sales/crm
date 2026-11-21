@@ -367,6 +367,7 @@ const dataSchemas = {
     .object({
       delivery: z
         .object({
+          queued: z.int().nonnegative(),
           sent: z.int().nonnegative(),
           delivered: z.int().nonnegative(),
           failed: z.int().nonnegative(),

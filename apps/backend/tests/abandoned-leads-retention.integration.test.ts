@@ -35,6 +35,7 @@ const RECENT = '41000000-0000-4000-8000-000000000e42';
 const SUBMITTED = '41000000-0000-4000-8000-000000000e43';
 const WITH_DOCS = '41000000-0000-4000-8000-000000000e44';
 const OLD_RESTRICTED = '41000000-0000-4000-8000-000000000e45';
+const OLD_TRIMMED = '41000000-0000-4000-8000-000000000e46';
 const ORPHAN_CONTACT = '51000000-0000-4000-8000-000000000e41';
 const SHARED_CONTACT = '51000000-0000-4000-8000-000000000e42';
 const NOW = new Date('2026-10-29T12:00:00.000Z');
@@ -162,35 +163,43 @@ databaseTest('abandoned lead retention (restrictAbandoned)', () => {
         (${ORPHAN_CONTACT}, 'orphan@example.test', 'Ada Visitor'),
         (${SHARED_CONTACT}, 'shared@example.test', 'Bo Visitor')
     `;
-    const insertDraft = (id: string, contact: string) => admin`
+    const insertDraft = (id: string, contact: string | null) => admin`
       insert into app.leads (
         id, workspace_id, lead_type, status, consent_version, attribution, full_name, email,
-        contact_id, order_details, updated_at
+        phone, country_code, payload, custom_values, contact_id, order_details, updated_at
       ) values (
         ${id}, ${WORKSPACE}, 'sim_order', 'incomplete', 'ci',
-        ${admin.json({ utmSource: 'google', landingPath: '/order?email=ada@example.test', utmTerm: 'ada' })},
-        'Ada Visitor', 'ada@example.test', ${contact},
+        ${admin.json({ utmSource: 'google', utmMedium: 'cpc', landingPath: '/order?email=ada@example.test', utmTerm: 'ada', utmContent: 'ada-banner' })},
+        'Ada Visitor', 'ada@example.test', '+14035550100', 'CA',
+        ${admin.json({ schemaVersion: 1, payload: { city: 'Calgary' } })},
+        ${admin.json({ custom_referral_code: 'REF-1' })}, ${contact},
         ${admin.json({ planId: null, quantity: 2, courier: 'canada_post', trackingNumber: 'TRACK1' })},
         ${daysAgo(ABANDONED_LEAD_RETENTION_DAYS + 5)}
       )
     `;
     await insertDraft(WITH_DOCS, ORPHAN_CONTACT);
     await insertDraft(OLD_RESTRICTED, SHARED_CONTACT);
+    // An older restricted draft with nothing left to finish but its row: no
+    // contact, file, identity, task or note, only what the row itself kept.
+    await insertDraft(OLD_TRIMMED, null);
     // A submitted lead elsewhere keeps the shared contact alive.
     await admin`
       insert into app.leads (id, workspace_id, lead_type, status, consent_version, contact_id)
       values (${SUBMITTED}, ${WORKSPACE}, 'internet', 'submitted', 'ci', ${SHARED_CONTACT})
     `;
-    const addFile = (lead: string, key: string) => admin<{ id: string }[]>`
+    // One current file per lead and type (#81): the licence is its own type.
+    const addFile = (lead: string, key: string, documentType = 'passport') => admin<
+      { id: string }[]
+    >`
       insert into app.files (workspace_id, record_type, record_id, document_type, bucket,
         staging_key, candidate_key, object_key, declared_content_type, detected_mime,
         declared_size_bytes, size_bytes, checksum_sha256, status, uploaded_by, expires_at, finalized_at)
-      values (${WORKSPACE}, 'lead', ${lead}, 'passport', 'documents', ${`staging/${key}`},
+      values (${WORKSPACE}, 'lead', ${lead}, ${documentType}, 'documents', ${`staging/${key}`},
         ${`final/${key}`}, ${`final/${key}`}, 'application/pdf', 'application/pdf', 10, 10,
         ${'f'.repeat(64)}, 'available', ${ACTOR}, now(), now())
       returning id
     `;
-    const [licence] = await addFile(WITH_DOCS, 'ci-m2-licence');
+    const [licence] = await addFile(WITH_DOCS, 'ci-m2-licence', 'drivers_licence');
     await addFile(WITH_DOCS, 'ci-m2-passport');
     await addFile(OLD_RESTRICTED, 'ci-m2-old');
     await admin`
@@ -208,10 +217,13 @@ databaseTest('abandoned lead retention (restrictAbandoned)', () => {
       await admin`insert into app.lead_activities (workspace_id, lead_id, actor_id, kind, body)
         values (${WORKSPACE}, ${lead}, ${ACTOR}, 'note', 'Ada said her SIN is 123')`;
     }
-    // Restricted before M-2: the row is erased, everything it points at is not.
+    // Restricted before M-2, as the first version of the job did it: the
+    // name, email, phone, country and answers are erased; the custom values,
+    // the attribution extras and everything the row points at are not.
     await admin`
-      update app.leads set full_name = null, email = null, customer_data_restricted_at = ${daysAgo(10)}
-      where id = ${OLD_RESTRICTED}
+      update app.leads set full_name = null, email = null, phone = null, country_code = null,
+        payload = null, customer_data_restricted_at = ${daysAgo(10)}
+      where id in (${OLD_RESTRICTED}, ${OLD_TRIMMED})
     `;
 
     const deleted: string[] = [];
@@ -230,7 +242,7 @@ databaseTest('abandoned lead retention (restrictAbandoned)', () => {
     });
     expect(result).toEqual({
       restrictedLeads: 1,
-      finishedLeads: 1,
+      finishedLeads: 2,
       deletedObjects: 5,
       failedDeletes: 1,
     });
@@ -242,29 +254,40 @@ databaseTest('abandoned lead retention (restrictAbandoned)', () => {
       'staging/ci-m2-passport',
     ]);
 
-    const leadsLeft = await admin<
-      { id: string; contactId: string | null; attribution: unknown; orderDetails: unknown }[]
-    >`
-      select id, contact_id as "contactId", attribution, order_details as "orderDetails"
-      from app.leads where id in (${WITH_DOCS}, ${OLD_RESTRICTED}) order by id
+    // Issue #109: a draft restricted today and one restricted by an older
+    // version of the job end with the same permitted fields, whichever
+    // leftovers brought the older one back into the run.
+    const leadsLeft = await admin<Record<string, unknown>[]>`
+      select id, full_name as "fullName", email, phone, country_code as "countryCode", payload,
+        custom_values as "customValues", contact_id as "contactId", attribution,
+        order_details as "orderDetails", customer_data_restricted_at is not null as restricted
+      from app.leads where id in (${WITH_DOCS}, ${OLD_RESTRICTED}, ${OLD_TRIMMED}) order by id
     `;
+    const permitted = {
+      fullName: null,
+      email: null,
+      phone: null,
+      countryCode: null,
+      payload: null,
+      customValues: {},
+      contactId: null,
+      attribution: { utmSource: 'google', utmMedium: 'cpc' },
+      orderDetails: { planId: null, quantity: 2 },
+      restricted: true,
+    };
     expect(leadsLeft).toEqual([
-      {
-        id: WITH_DOCS,
-        contactId: null,
-        attribution: { utmSource: 'google' },
-        orderDetails: { planId: null, quantity: 2 },
-      },
-      {
-        id: OLD_RESTRICTED,
-        contactId: null,
-        attribution: {
-          utmSource: 'google',
-          landingPath: '/order?email=ada@example.test',
-          utmTerm: 'ada',
-        },
-        orderDetails: { planId: null, quantity: 2 },
-      },
+      { id: WITH_DOCS, ...permitted },
+      { id: OLD_RESTRICTED, ...permitted },
+      { id: OLD_TRIMMED, ...permitted },
+    ]);
+    // The older drafts keep the day they were restricted.
+    const stamps = await admin<{ id: string; at: Date }[]>`
+      select id, customer_data_restricted_at as at from app.leads
+      where id in (${OLD_RESTRICTED}, ${OLD_TRIMMED}) order by id
+    `;
+    expect(stamps.map((row) => row.at.toISOString())).toEqual([
+      daysAgo(10).toISOString(),
+      daysAgo(10).toISOString(),
     ]);
     const counts = await admin<
       { files: number; identities: number; tasks: number; notes: number }[]
@@ -281,6 +304,17 @@ databaseTest('abandoned lead retention (restrictAbandoned)', () => {
     `;
     expect(contactsLeft).toEqual([{ id: SHARED_CONTACT }]);
 
+    // The run says what it finished, once per lead.
+    const audits = await admin<{ entityId: string; action: string }[]>`
+      select entity_id as "entityId", action from app.audit_events
+      where workspace_id = ${WORKSPACE} and entity_id in (${OLD_RESTRICTED}, ${OLD_TRIMMED})
+      order by entity_id
+    `;
+    expect(audits).toEqual([
+      { entityId: OLD_RESTRICTED, action: 'lead.restricted_data_erased' },
+      { entityId: OLD_TRIMMED, action: 'lead.restricted_data_erased' },
+    ]);
+
     // A second run finds nothing left to do.
     const again = await pruner.restrictAbandoned({
       workspaceId: WORKSPACE,
@@ -293,6 +327,44 @@ databaseTest('abandoned lead retention (restrictAbandoned)', () => {
       deletedObjects: 0,
       failedDeletes: 0,
     });
+  });
+
+  // Migration 0042: the one attribution change a restricted lead still takes.
+  test('a restricted lead’s attribution can lose the erased keys and nothing else', async () => {
+    const GUARDED = '41000000-0000-4000-8000-000000000e47';
+    await admin`delete from app.leads where id = ${GUARDED}`;
+    await admin`
+      insert into app.leads (id, workspace_id, lead_type, status, consent_version, attribution,
+        customer_data_restricted_at)
+      values (${GUARDED}, ${WORKSPACE}, 'internet', 'incomplete', 'ci',
+        ${admin.json({ utmSource: 'google', utmTerm: 'ada', landingPath: '/order' })}, ${daysAgo(3)})
+    `;
+    const attempt = (attribution: Record<string, string>) =>
+      database
+        .withTenantTx({ workspaceId: WORKSPACE, actorId: ACTOR }, (tx) =>
+          tx.execute(
+            sql`update app.leads set attribution = ${JSON.stringify(attribution)}::jsonb where id = ${GUARDED}`,
+          ),
+        )
+        .then(
+          () => 'saved',
+          (error: unknown) =>
+            error instanceof Error && error.cause instanceof Error ? error.cause.message : 'other',
+        );
+    // Rewriting a kept key, adding one, or dropping a kept key with the erased ones.
+    expect(await attempt({ utmSource: 'bing' })).toBe('customer_data_restricted');
+    expect(await attempt({ utmSource: 'google', utmCampaign: 'ada' })).toBe(
+      'customer_data_restricted',
+    );
+    expect(await attempt({ utmSource: 'google', utmTerm: 'someone else' })).toBe(
+      'customer_data_restricted',
+    );
+    // Dropping only some of the erased keys is not the erasure either.
+    expect(await attempt({ utmSource: 'google', utmTerm: 'ada' })).toBe('customer_data_restricted');
+    expect(await attempt({ utmSource: 'google' })).toBe('saved');
+    // Emptying it stays allowed, as before.
+    expect(await attempt({})).toBe('saved');
+    await admin`delete from app.leads where id = ${GUARDED}`;
   });
 
   test('the erasure function refuses another site and live leads', async () => {

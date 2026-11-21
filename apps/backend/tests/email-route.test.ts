@@ -68,7 +68,7 @@ class FakeEmailStore implements EmailStore {
     return [];
   }
   async deliverySummary(): Promise<DeliverySummary> {
-    return { sent: 0, delivered: 0, failed: 0, uncertain: 0 };
+    return { queued: 0, sent: 0, delivered: 0, failed: 0, uncertain: 0 };
   }
   async recordUnsubscribe(input: { contactHash: string; leadId?: string }): Promise<void> {
     this.unsubscribed.push({ contactHash: input.contactHash, leadId: input.leadId });

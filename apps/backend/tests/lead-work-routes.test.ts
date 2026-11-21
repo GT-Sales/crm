@@ -400,9 +400,17 @@ async function errorCode(response: Response) {
 
 describe('staff lead work routes', () => {
   it('passes the list filters through and reports what the caller may do', async () => {
-    const response = await call(
-      `${leadsUrl()}?type=internet&stage=qualified&assignee=me&q=avery&view=trash&page=2`,
-    );
+    const response = await call(`${leadsUrl()}/search`, {
+      method: 'POST',
+      body: {
+        type: 'internet',
+        stage: 'qualified',
+        assignee: 'me',
+        q: 'avery',
+        view: 'trash',
+        page: 2,
+      },
+    });
     expect(response.status).toBe(200);
     const body = listWorkspaceLeadsResponseSchema.parse(await response.json());
     expect(body.access).toEqual({
@@ -424,13 +432,76 @@ describe('staff lead work routes', () => {
 
   it('refuses a search to a role that cannot see contacts', async () => {
     store.access = { ...store.access, roles: ['viewer'] };
-    const response = await call(`${leadsUrl()}?q=avery`);
+    const response = await call(`${leadsUrl()}/search`, { method: 'POST', body: { q: 'avery' } });
     expect(response.status).toBe(403);
     expect((await errorCode(response)).code).toBe('permission_denied');
     expect(leadStore.listCalls).toHaveLength(0);
 
-    const board = await call(`${leadsUrl()}/board?type=internet&q=avery`);
+    const board = await call(`${leadsUrl()}/board/search`, {
+      method: 'POST',
+      body: { type: 'internet', q: 'avery' },
+    });
     expect(board.status).toBe(403);
+    expect(work.board).not.toHaveBeenCalled();
+  });
+
+  it('refuses a search in the query string, where proxies and logs would keep it (#83)', async () => {
+    const list = await call(`${leadsUrl()}?type=internet&q=avery`);
+    expect(list.status).toBe(400);
+    expect((await errorCode(list)).code).toBe('invalid_request');
+    expect(leadStore.listCalls).toHaveLength(0);
+
+    const board = await call(`${leadsUrl()}/board?type=internet&q=avery`);
+    expect(board.status).toBe(400);
+    expect((await errorCode(board)).code).toBe('invalid_request');
+    expect(work.board).not.toHaveBeenCalled();
+  });
+
+  it('searches the list and the board from a request body, with the list’s own filters and checks', async () => {
+    const filters = [{ key: 'permitType', op: 'eq', value: 'student' }];
+    const list = await call(`${leadsUrl()}/search`, {
+      method: 'POST',
+      body: {
+        q: '  Avery Example ',
+        type: 'sim_order',
+        where: filters,
+        sort: 'prop.arrivalDate:asc',
+        columns: ['arrivalDate', 'permitType'],
+        pageSize: 8,
+      },
+    });
+    expect(list.status).toBe(200);
+    listWorkspaceLeadsResponseSchema.parse(await list.json());
+    expect(leadStore.listCalls[0]).toMatchObject({
+      search: 'Avery Example',
+      leadType: 'sim_order',
+      where: filters,
+      sort: 'prop.arrivalDate:asc',
+      columns: ['arrivalDate', 'permitType'],
+      pageSize: 8,
+    });
+
+    const board = await call(`${leadsUrl()}/board/search`, {
+      method: 'POST',
+      body: { q: 'avery', type: 'sim_order', where: filters, perStage: 20 },
+    });
+    expect(board.status).toBe(200);
+    expect(work.board).toHaveBeenCalledWith(
+      expect.objectContaining({ leadType: 'sim_order', search: 'avery', where: filters }),
+      20,
+    );
+
+    // The same checks as the GET: an unknown filter key, a missing search, an extra field.
+    for (const body of [
+      { q: 'avery', type: 'sim_order', where: [{ key: 'unknownKey', op: 'eq', value: 'x' }] },
+      { type: 'sim_order' },
+      { q: 'avery', other: 1 },
+    ]) {
+      const refused = await call(`${leadsUrl()}/search`, { method: 'POST', body });
+      expect(refused.status).toBe(400);
+      expect((await errorCode(refused)).code).toBe('invalid_request');
+    }
+    expect(leadStore.listCalls).toHaveLength(1);
   });
 
   it('passes parsed property filters, sort and columns to the stores', async () => {
@@ -1043,6 +1114,34 @@ describe('staff lead work routes', () => {
       expect(error.code).toBe(code);
       expect(error.details).toEqual(details);
     }
+  });
+
+  it('passes the editor’s opened contact values on and answers a stale field with 409 (#89)', async () => {
+    work.updateLead.mockResolvedValueOnce({ status: 'contact_conflict', fields: ['fullName'] });
+    const response = await call(`${leadsUrl()}/${LEAD}`, {
+      method: 'PATCH',
+      body: {
+        contact: { phone: '403 555 0101' },
+        expectedContact: { phone: null },
+      },
+    });
+    expect(response.status).toBe(409);
+    const error = await errorCode(response);
+    expect(error.code).toBe('version_conflict');
+    expect(error.details).toEqual({ fields: ['fullName'] });
+    expect(work.updateLead).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        contact: { phone: '403 555 0101' },
+        expectedContact: { phone: null },
+      }),
+    );
+
+    // An expectation with nothing to save is a malformed request.
+    const alone = await call(`${leadsUrl()}/${LEAD}`, {
+      method: 'PATCH',
+      body: { stage: 'contacted', expectedContact: { phone: null } },
+    });
+    expect(alone.status).toBe(400);
   });
 
   it('answers 500, never hangs, for an outcome the route does not know', async () => {

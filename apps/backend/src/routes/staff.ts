@@ -20,6 +20,10 @@ import {
   createServiceCredentialRequestSchema,
   inviteStaffRequestSchema,
   leadBoardQuerySchema,
+  searchLeadBoardRequestSchema,
+  searchWorkspaceLeadsRequestSchema,
+  type LeadBoardQuery,
+  type ListWorkspaceLeadsQuery,
   leadStatsQuerySchema,
   leadsSummaryQuerySchema,
   listWorkspaceLeadsQuerySchema,
@@ -94,6 +98,7 @@ import { DatabaseSavedViewStore, type SavedViewStore } from '../views/store.js';
 import { generateServiceSecret } from '../website/credential.js';
 import { createSavedViewRoutes } from './views.js';
 import {
+  CredentialLeadTypesUnavailableError,
   DatabaseWebsiteCredentialStore,
   type ServiceCredentialRecord,
   type WebsiteCredentialStore,
@@ -348,6 +353,7 @@ function credentialSummary(record: ServiceCredentialRecord) {
   return {
     id: record.id,
     scopes: record.scopes,
+    leadTypes: record.leadTypes,
     createdAt: record.createdAt,
     revokedAt: record.revokedAt,
   };
@@ -579,30 +585,33 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
     }
   });
 
-  router.get('/workspaces/:workspaceId/leads', async (req, res) => {
-    const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
-    const query = listWorkspaceLeadsQuerySchema.safeParse(req.query);
-    if (!workspaceId.success || !query.success) {
-      sendStaffAuthError(res, req.id, 'invalid_request', 400);
-      return;
-    }
-
+  /**
+   * The leads list, for the `GET` (filters in the query string) and for the
+   * searched `POST` (the same filters and the search text in the body, so a
+   * customer's name, email or phone is never in a URL: issue #83).
+   */
+  async function sendLeadList(
+    req: Request,
+    res: Response,
+    workspaceId: string,
+    filters: ListWorkspaceLeadsQuery & { q?: string },
+  ): Promise<void> {
     try {
-      const { actor, decision } = await decide(req, workspaceId.data, 'workspace.read');
+      const { actor, decision } = await decide(req, workspaceId, 'workspace.read');
       if (!decision.allowed) {
         sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
         return;
       }
       const access = leadAccessOf(decision.access);
-      const parsedSort = query.data.sort ? parseLeadSort(query.data.sort) : undefined;
+      const parsedSort = filters.sort ? parseLeadSort(filters.sort) : undefined;
       // Searching, filtering, sorting by name or a property, or requesting
       // property columns reveals contact or form details these roles never see,
       // whatever the keys: refused before the catalogue is read.
       if (
         !access.contacts &&
-        (query.data.q !== undefined ||
-          query.data.where !== undefined ||
-          query.data.columns !== undefined ||
+        (filters.q !== undefined ||
+          filters.where !== undefined ||
+          filters.columns !== undefined ||
           parsedSort?.field === 'fullName' ||
           parsedSort?.propertyKey !== undefined)
       ) {
@@ -610,35 +619,34 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         return;
       }
       // Filters, sort and columns name the site's properties, as it defines them now.
-      const catalog = await siteCatalog(req, workspaceId.data, actor.actorId);
+      const catalog = await siteCatalog(req, workspaceId, actor.actorId);
       if (
-        (query.data.where !== undefined &&
-          !areValidLeadPropertyFilters(query.data.where, query.data.type, catalog)) ||
-        (query.data.sort !== undefined &&
-          !isValidLeadSort(query.data.sort, query.data.type, catalog)) ||
-        (query.data.columns !== undefined &&
-          !areValidLeadColumns(query.data.columns, query.data.type, catalog))
+        (filters.where !== undefined &&
+          !areValidLeadPropertyFilters(filters.where, filters.type, catalog)) ||
+        (filters.sort !== undefined && !isValidLeadSort(filters.sort, filters.type, catalog)) ||
+        (filters.columns !== undefined &&
+          !areValidLeadColumns(filters.columns, filters.type, catalog))
       ) {
         sendStaffAuthError(res, req.id, 'invalid_request', 400);
         return;
       }
 
       const result = await dependencies.leadStore.listLeads({
-        workspaceId: workspaceId.data,
+        workspaceId: workspaceId,
         actorId: actor.actorId,
-        status: query.data.status,
-        leadType: query.data.type,
-        stage: query.data.stage,
-        assignee: query.data.assignee,
-        search: query.data.q,
-        view: query.data.view,
-        dueBy: query.data.dueBy,
-        where: query.data.where,
-        sort: query.data.sort,
-        columns: query.data.columns,
+        status: filters.status,
+        leadType: filters.type,
+        stage: filters.stage,
+        assignee: filters.assignee,
+        search: filters.q,
+        view: filters.view,
+        dueBy: filters.dueBy,
+        where: filters.where,
+        sort: filters.sort,
+        columns: filters.columns,
         catalog,
-        page: query.data.page,
-        pageSize: query.data.pageSize,
+        page: filters.page,
+        pageSize: filters.pageSize,
       });
       const leads = access.contacts ? result.leads : result.leads.map(withoutContact);
       res.json({ leads, page: result.page, access, requestId: req.id });
@@ -646,6 +654,28 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       reportFailure(req, error);
       sendStaffAuthError(res, req.id, 'internal_error', 500);
     }
+  }
+
+  router.get('/workspaces/:workspaceId/leads', async (req, res) => {
+    const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
+    const query = listWorkspaceLeadsQuerySchema.safeParse(req.query);
+    // A search in the query string is refused, not ignored: an unfiltered list would look like its answer.
+    if (!workspaceId.success || !query.success || req.query['q'] !== undefined) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    await sendLeadList(req, res, workspaceId.data, query.data);
+  });
+
+  // Registered before the `/leads/:leadId/…` posts so the literal segment wins.
+  router.post('/workspaces/:workspaceId/leads/search', async (req, res) => {
+    const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
+    const body = searchWorkspaceLeadsRequestSchema.safeParse(req.body);
+    if (!workspaceId.success || !body.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    await sendLeadList(req, res, workspaceId.data, body.data);
   });
 
   // Registered before `/leads/:leadId` so the literal segments win.
@@ -716,28 +746,28 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
     }
   });
 
-  router.get('/workspaces/:workspaceId/leads/board', async (req, res) => {
-    const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
-    const query = leadBoardQuerySchema.safeParse(req.query);
-    if (!workspaceId.success || !query.success) {
-      sendStaffAuthError(res, req.id, 'invalid_request', 400);
-      return;
-    }
+  /** The board, for the `GET` and for the searched `POST` (as `sendLeadList`). */
+  async function sendLeadBoard(
+    req: Request,
+    res: Response,
+    workspaceId: string,
+    filters: LeadBoardQuery & { q?: string },
+  ): Promise<void> {
     try {
-      const { actor, decision } = await decide(req, workspaceId.data, 'workspace.read');
+      const { actor, decision } = await decide(req, workspaceId, 'workspace.read');
       if (!decision.allowed) {
         sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
         return;
       }
       const access = leadAccessOf(decision.access);
-      if (!access.contacts && (query.data.q !== undefined || query.data.where !== undefined)) {
+      if (!access.contacts && (filters.q !== undefined || filters.where !== undefined)) {
         sendStaffAuthError(res, req.id, 'permission_denied', 403);
         return;
       }
-      const catalog = await siteCatalog(req, workspaceId.data, actor.actorId);
+      const catalog = await siteCatalog(req, workspaceId, actor.actorId);
       if (
-        query.data.where !== undefined &&
-        !areValidLeadPropertyFilters(query.data.where, query.data.type, catalog)
+        filters.where !== undefined &&
+        !areValidLeadPropertyFilters(filters.where, filters.type, catalog)
       ) {
         sendStaffAuthError(res, req.id, 'invalid_request', 400);
         return;
@@ -746,18 +776,18 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       if (!store) return;
       const columns = await store.board(
         {
-          workspaceId: workspaceId.data,
+          workspaceId: workspaceId,
           actorId: actor.actorId,
-          leadType: query.data.type,
-          assignee: query.data.assignee,
-          search: query.data.q,
-          where: query.data.where,
+          leadType: filters.type,
+          assignee: filters.assignee,
+          search: filters.q,
+          where: filters.where,
           catalog,
         },
-        query.data.perStage ?? 50,
+        filters.perStage ?? 50,
       );
       res.json({
-        leadType: query.data.type,
+        leadType: filters.type,
         columns: access.contacts
           ? columns
           : columns.map((column) => ({ ...column, leads: column.leads.map(withoutContact) })),
@@ -768,6 +798,26 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       reportFailure(req, error);
       sendStaffAuthError(res, req.id, 'internal_error', 500);
     }
+  }
+
+  router.get('/workspaces/:workspaceId/leads/board', async (req, res) => {
+    const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
+    const query = leadBoardQuerySchema.safeParse(req.query);
+    if (!workspaceId.success || !query.success || req.query['q'] !== undefined) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    await sendLeadBoard(req, res, workspaceId.data, query.data);
+  });
+
+  router.post('/workspaces/:workspaceId/leads/board/search', async (req, res) => {
+    const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
+    const body = searchLeadBoardRequestSchema.safeParse(req.body);
+    if (!workspaceId.success || !body.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    await sendLeadBoard(req, res, workspaceId.data, body.data);
   });
 
   router.get('/workspaces/:workspaceId/leads/:leadId', async (req, res) => {
@@ -864,6 +914,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         stage: body.data.stage,
         assignedActorId: body.data.assignedActorId,
         contact: body.data.contact,
+        expectedContact: body.data.expectedContact,
         form: body.data.form,
         customValues: body.data.customValues,
         order: body.data.order,
@@ -1544,8 +1595,13 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         sendStaffAuthError(res, req.id, 'membership_not_found', 404);
         return;
       }
-      if (result === 'self') {
+      if (result === 'self' || result === 'last_owner') {
         sendStaffAuthError(res, req.id, 'invalid_request', 400);
+        return;
+      }
+      if (result === 'forbidden') {
+        // Removed from the site, or no longer an owner, since the check above.
+        sendStaffAuthError(res, req.id, 'permission_denied', 403);
         return;
       }
       res.json({ membershipId: membershipId.data, status: 'revoked', requestId: req.id });
@@ -1576,11 +1632,17 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         actorId: actor.actorId,
         workspaceId: workspaceId.data,
         scopes: body.data.scopes,
+        leadTypes: body.data.leadTypes,
         secretHash,
         requestId: req.id,
       });
       res.status(201).json({ credential: credentialSummary(record), secret, requestId: req.id });
     } catch (error) {
+      if (error instanceof CredentialLeadTypesUnavailableError) {
+        // Migration 0043 is not applied yet: a clean refusal, never a 500.
+        sendDomainError(res, req.id, 'credential_lead_types_unavailable', 503);
+        return;
+      }
       reportFailure(req, error);
       sendStaffAuthError(res, req.id, 'internal_error', 500);
     }

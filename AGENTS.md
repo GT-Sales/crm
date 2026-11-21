@@ -51,6 +51,11 @@ The code was copied from the Canadian Plans platform and pruned
    rest, scoped, revocable; its row id is the actor for its writes) and prove a
    visitor owns a draft with a draft grant (`gtdg_…`). They can create and
    resume their own leads and upload documents against them, nothing else.
+   A key also names the lead types it may send
+   (`service_credentials.lead_types`, migration 0043, issue #84): a create or
+   a draft save of any other type is `403 lead_type_not_permitted` and writes
+   nothing (`website/credential-schema.ts`, checked inside the write's own
+   transaction in `leads/store.ts`).
 6. **Side effects go through the outbox** (`app.outbox_jobs`), never straight
    from a request handler: emails, analytics, alerts. Dedupe on
    `(workspace, job_type, dedupe_key)`. A mail the provider refuses outright
@@ -62,7 +67,12 @@ The code was copied from the Canadian Plans platform and pruned
    A mail to a lead's customer keeps its subject and plain text in its
    timeline entry's `body` (owner decision, 13 Nov 2026, for the lead's Mail
    tab; `email/kept-text.ts`). It sits with the notes, so erasing a customer's
-   data nulls it the same way; the address is still never stored.
+   data nulls it the same way; the address is still never stored. A
+   customer's draft save keeps the values they changed in its timeline
+   entry's `body` as well (owner decision, 21 Nov 2026, issue #87;
+   `leads/draft-changes.ts`): erased the same way, never in the entry's
+   `data`, a log or an audit event, and never a sensitive field's or an
+   unmodelled key's value.
 8. **No secrets in the repo.** Keys, passwords and customer data live in
    Railway/Vercel/Supabase. Treat the repository as public.
 9. **Demo-proof tests.** Integration suites run against a disposable database
@@ -110,7 +120,9 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
 - Staff routes (sites, access, profile, leads, board, tasks, members, jobs,
   credentials, files): `src/routes/staff.ts`.
 - Documents: `src/documents/` (signed upload intent → finalize with
-  signature verification → attach; staff review and download links).
+  signature verification → attach; staff review and download links;
+  `object-deletions.ts` the durable record of storage copies to delete and
+  the `document_cleanup` sweep that deletes them, migration 0045).
 - Scheduler: `src/scheduler.ts` (`outbox`, `document_cleanup`,
   `data_retention`, `automations`, and `intake_check` when
   `INTAKE_CHECK_WORKSPACE_ID` is set), identities in
@@ -278,7 +290,7 @@ catalogue, never the code list directly. A **layout** orders the sections and
 property keys of the lead record for one site and lead type
 (`app.property_layouts`). A **saved view** is one staff member's private copy
 of the leads inbox state (layout, type, stage, assignee, archive, due today,
-filters, sort, property columns and hidden columns), never the free-text search or the page; `app.saved_views` is
+filters, sort, property columns and hidden columns), never the free-text search or the page. The free-text search is in no URL at all (#83): the inbox keeps it in page state (`apps/admin/src/lib/lead-search-handoff.ts` carries it from Ctrl/Cmd K), and it reaches the backend in the body of `POST …/leads/search` or `…/leads/board/search`, never as `?q=`. `app.saved_views` is
 visible only to its owner, at most 30 per person per site.
 
 A **plan** is something a site sells, for one order lead type (`sim_order`,

@@ -34,6 +34,7 @@ const migrationUrl = getDisposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
 
 const SITE = '00000000-0000-4000-8000-000000006801';
+const DEFAULT_EMAIL = 'nadia.decide@example.com';
 const BARE_SITE = '00000000-0000-4000-8000-000000006802'; // no email settings
 const CREDENTIAL = '00000000-0000-4000-8000-000000006811';
 const STAFF = '00000000-0000-4000-8000-000000006812';
@@ -78,7 +79,7 @@ databaseTest('approving and rejecting change requests', () => {
 
   const staff = (actorId = STAFF) => ({ actorId, requestId: crypto.randomUUID() });
 
-  const insertLead = async (site = SITE, email: string | null = 'nadia.decide@example.com') => {
+  const insertLead = async (site = SITE, email: string | null = DEFAULT_EMAIL) => {
     const [row] = await admin<{ id: string }[]>`
       insert into app.leads (workspace_id, lead_type, status, stage, full_name, email, phone,
         payload, order_details, consent_version)
@@ -148,19 +149,30 @@ databaseTest('approving and rejecting change requests', () => {
     email?: string | null,
     fields: Parameters<DatabaseChangeRequestStore['requestChange']>[0]['fields'] = REQUESTED,
   ) => {
-    const leadId = await insertLead(site, email);
+    // The customer's request is made while the order has its email, as the
+    // tracking route requires; a null `email` is the staff's later erasure.
+    const leadId = await insertLead(site, email === null ? DEFAULT_EMAIL : email);
     const oldPassport = await currentPassport(site, leadId);
     const scope = { workspaceId: site, actorId: CREDENTIAL, requestId: crypto.randomUUID() };
-    const saved = await store.requestChange({ ...scope, leadId, fields, now: new Date() });
+    const normalizedEmail = (email ?? DEFAULT_EMAIL).toLowerCase();
+    const saved = await store.requestChange({
+      ...scope,
+      leadId,
+      normalizedEmail,
+      fields,
+      now: new Date(),
+    });
     if (saved.status !== 'saved') throw new Error(`not saved: ${saved.status}`);
     const passport = await heldPassport(site, leadId);
     const attached = await store.attachDocument({
       ...scope,
       leadId,
+      normalizedEmail,
       fileId: passport.fileId,
       now: new Date(),
     });
     if (attached.status !== 'saved') throw new Error(`not attached: ${attached.status}`);
+    if (email === null) await admin`update app.leads set email = null where id = ${leadId}`;
     expect(attached.changeRequest.version).toBe(2);
     return { leadId, oldPassport, passport, request: attached.changeRequest };
   };
@@ -358,14 +370,22 @@ databaseTest('approving and rejecting change requests', () => {
   it('refuses the version from before the customer replaced the request, writing nothing', async () => {
     const leadId = await insertLead();
     const scope = { workspaceId: SITE, actorId: CREDENTIAL, requestId: crypto.randomUUID() };
+    const normalizedEmail = DEFAULT_EMAIL;
     const first = await store.requestChange({
       ...scope,
       leadId,
+      normalizedEmail,
       fields: { phone: NEW_PHONE },
       now: new Date(),
     });
     if (first.status !== 'saved') throw new Error('not saved');
-    await store.requestChange({ ...scope, leadId, fields: { fullName: 'Other' }, now: new Date() });
+    await store.requestChange({
+      ...scope,
+      leadId,
+      normalizedEmail,
+      fields: { fullName: 'Other' },
+      now: new Date(),
+    });
     const before = await timeline(leadId);
     expect(
       await service.approve(

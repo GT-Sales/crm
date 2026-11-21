@@ -25,7 +25,7 @@ import { z } from 'zod';
 
 import { readAutomationLead } from '../automations/run.js';
 import { documentBucket } from '../documents/config.js';
-import { releaseHeldFiles, tombstoneHeldFiles } from '../documents/store.js';
+import { enqueueDeletedFile, releaseHeldFiles, tombstoneHeldFiles } from '../documents/store.js';
 import { composeCustomerEmail } from '../email/compose.js';
 import { queueComposedEmail } from '../email/queue.js';
 import { isPlanAvailable } from '../leads/order.js';
@@ -41,6 +41,7 @@ import {
 import { loadPlanForFreeze } from '../plans/store.js';
 import type { WriteScope } from '../tenant-scope.js';
 import { lockRequest, selectPending, type ChangeRequestRow } from './change-request-rows.js';
+import { normalizeTrackingEmail } from './secrets.js';
 import type { WebsiteScope } from './store.js';
 
 export {
@@ -71,13 +72,21 @@ export interface ChangeRequestStore {
     input: WebsiteScope & {
       requestId: string;
       leadId: string;
+      /** The verified, normalized email of the grant: the order must still be this email's. */
+      normalizedEmail: string;
       fields: ChangeRequestFields;
       now: Date;
     },
   ): Promise<CustomerChangeOutcome>;
   /** A finalized held file joins the lead's pending request (made if none); an earlier held file of its type is tombstoned. */
   attachDocument(
-    input: WebsiteScope & { requestId: string; leadId: string; fileId: string; now: Date },
+    input: WebsiteScope & {
+      requestId: string;
+      leadId: string;
+      normalizedEmail: string;
+      fileId: string;
+      now: Date;
+    },
   ): Promise<CustomerChangeOutcome>;
   pendingForLead(
     tx: TenantTransaction,
@@ -85,7 +94,9 @@ export interface ChangeRequestStore {
     leadId: string,
   ): Promise<ChangeRequestRow | undefined>;
   /** The file is the lead's held upload (an intent or a finalized file), not deleted. */
-  isHeldUpload(input: WebsiteScope & { leadId: string; fileId: string }): Promise<boolean>;
+  isHeldUpload(
+    input: WebsiteScope & { leadId: string; normalizedEmail: string; fileId: string },
+  ): Promise<boolean>;
   /**
    * A finalized held upload that joined no request (the order can no longer
    * change): tombstoned, unless a pending request holds it; its object key,
@@ -113,14 +124,24 @@ const documentTypeSchema = z.enum(CHANGE_REQUEST_DOCUMENTS);
 
 const isChangeStage = (stage: string) => CHANGE_REQUEST_STAGES.some((value) => value === stage);
 
-/** The lead, locked, when the customer may still change it; else why not. */
+/**
+ * The lead, locked, when the customer may still change it; else why not. The
+ * order was found by the grant's email in an earlier transaction, so the
+ * lead's email is compared again under the lock: staff may have moved the
+ * order to another customer since, and then it is not this customer's order
+ * any more (answered as not found, like any order that is not theirs).
+ */
 async function lockChangeableLead(
   tx: TenantTransaction,
   workspaceId: string,
   leadId: string,
+  normalizedEmail: string,
 ): Promise<{ lead: LockedLead } | { status: 'not_found' | 'not_allowed' }> {
   const lead = await lockLead(tx, workspaceId, leadId);
   if (!lead) return { status: 'not_found' };
+  if (lead.email === null || normalizeTrackingEmail(lead.email) !== normalizedEmail) {
+    return { status: 'not_found' };
+  }
   if (
     lead.trashed ||
     lead.status !== 'submitted' ||
@@ -199,15 +220,15 @@ export class DatabaseChangeRequestStore implements ChangeRequestStore {
   }
 
   requestChange(
-    input: WebsiteScope & {
-      requestId: string;
-      leadId: string;
-      fields: ChangeRequestFields;
-      now: Date;
-    },
+    input: Parameters<ChangeRequestStore['requestChange']>[0],
   ): Promise<CustomerChangeOutcome> {
     return this.tx(input, async (tx) => {
-      const locked = await lockChangeableLead(tx, input.workspaceId, input.leadId);
+      const locked = await lockChangeableLead(
+        tx,
+        input.workspaceId,
+        input.leadId,
+        input.normalizedEmail,
+      );
       if (!('lead' in locked)) return locked;
       const field = await refusedField(tx, input.workspaceId, locked.lead, input.fields);
       if (field) return { status: 'invalid_field', field };
@@ -255,10 +276,15 @@ export class DatabaseChangeRequestStore implements ChangeRequestStore {
   }
 
   attachDocument(
-    input: WebsiteScope & { requestId: string; leadId: string; fileId: string; now: Date },
+    input: Parameters<ChangeRequestStore['attachDocument']>[0],
   ): Promise<CustomerChangeOutcome> {
     return this.tx(input, async (tx) => {
-      const locked = await lockChangeableLead(tx, input.workspaceId, input.leadId);
+      const locked = await lockChangeableLead(
+        tx,
+        input.workspaceId,
+        input.leadId,
+        input.normalizedEmail,
+      );
       if (!('lead' in locked)) return locked;
 
       // Only this lead's finalized held passport or visa joins its request.
@@ -304,10 +330,19 @@ export class DatabaseChangeRequestStore implements ChangeRequestStore {
                 sql`${files.status} <> 'deleted'`,
               ),
             )
-            .returning({ objectKey: files.objectKey });
+            .returning({
+              id: files.id,
+              bucket: files.bucket,
+              stagingKey: files.stagingKey,
+              candidateKey: files.candidateKey,
+              objectKey: files.objectKey,
+              expiresAt: files.expiresAt,
+            });
           // Already gone (staff removed it): nothing to delete, nothing to audit.
           if (!gone) continue;
           if (gone.objectKey) removedObjectKeys.push(gone.objectKey);
+          // Every copy of the replaced upload, by the cleanup sweep (#108).
+          await enqueueDeletedFile(tx, input.workspaceId, gone);
           await tx.insert(auditEvents).values({
             workspaceId: input.workspaceId,
             actorId: input.actorId,
@@ -392,8 +427,16 @@ export class DatabaseChangeRequestStore implements ChangeRequestStore {
                 and ${input.fileId}::uuid = any(r.staged_file_ids))`,
           ),
         )
-        .returning({ objectKey: files.objectKey });
+        .returning({
+          id: files.id,
+          bucket: files.bucket,
+          stagingKey: files.stagingKey,
+          candidateKey: files.candidateKey,
+          objectKey: files.objectKey,
+          expiresAt: files.expiresAt,
+        });
       if (!gone) return [];
+      await enqueueDeletedFile(tx, input.workspaceId, gone);
       await tx.insert(auditEvents).values({
         workspaceId: input.workspaceId,
         actorId: input.actorId,
@@ -408,13 +451,18 @@ export class DatabaseChangeRequestStore implements ChangeRequestStore {
     });
   }
 
-  isHeldUpload(input: WebsiteScope & { leadId: string; fileId: string }): Promise<boolean> {
+  isHeldUpload(input: Parameters<ChangeRequestStore['isHeldUpload']>[0]): Promise<boolean> {
     return this.tx(input, async (tx) => {
       const [file] = await tx
         .select({ id: files.id })
         .from(files)
         .where(
           and(
+            // Still the grant's email's order (the same match as tracking's own lookup).
+            sql`exists (
+              select 1 from app.leads l
+              where l.workspace_id = ${input.workspaceId} and l.id = ${input.leadId}
+                and lower(btrim(l.email)) = ${input.normalizedEmail})`,
             eq(files.workspaceId, input.workspaceId),
             eq(files.id, input.fileId),
             eq(files.recordType, 'lead'),

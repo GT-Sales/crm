@@ -35,6 +35,7 @@ import {
 import {
   createEmailTemplateRequestSchema,
   siteEmailTemplateResponseSchema,
+  emailDeliveryResponseSchema,
   emailSettingsResponseSchema,
   listEmailTemplatesQuerySchema,
   listSiteEmailTemplatesResponseSchema,
@@ -191,6 +192,8 @@ import {
   leadStatsResponseSchema,
   listWorkspaceLeadsQuerySchema,
   listWorkspaceLeadsResponseSchema,
+  searchLeadBoardRequestSchema,
+  searchWorkspaceLeadsRequestSchema,
 } from './workspace-leads';
 
 /**
@@ -388,10 +391,21 @@ export const endpoints: readonly EndpointDef[] = [
     method: 'GET',
     path: '/api/v1/staff/workspaces/{workspaceId}/leads',
     summary:
-      'List leads with filters (type, stage, assignee, search, archive, follow-ups due) and attribution.',
+      'List leads with filters (type, stage, assignee, archive, follow-ups due) and attribution. A free-text search is `POST …/leads/search`; `q` here is refused.',
     auth: 'staff',
     successStatus: 200,
     query: listWorkspaceLeadsQuerySchema,
+    response: listWorkspaceLeadsResponseSchema,
+  },
+  {
+    operationId: 'searchWorkspaceLeads',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/leads/search',
+    summary:
+      "The leads list, searched: the free-text search (name, email, phone, reference) with the list filters in the body, so customer text is never in a URL. Reads only; the list's authorization and response.",
+    auth: 'staff',
+    successStatus: 200,
+    request: searchWorkspaceLeadsRequestSchema,
     response: listWorkspaceLeadsResponseSchema,
   },
   {
@@ -461,6 +475,17 @@ export const endpoints: readonly EndpointDef[] = [
     auth: 'staff',
     successStatus: 200,
     query: leadBoardQuerySchema,
+    response: leadBoardResponseSchema,
+  },
+  {
+    operationId: 'searchWorkspaceLeadBoard',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/leads/board/search',
+    summary:
+      "The board, searched: the free-text search and the board's filters in the body. Reads only; the board's authorization and response.",
+    auth: 'staff',
+    successStatus: 200,
+    request: searchLeadBoardRequestSchema,
     response: leadBoardResponseSchema,
   },
   {
@@ -694,6 +719,18 @@ export const endpoints: readonly EndpointDef[] = [
     response: propertyLayoutResponseSchema,
   },
   {
+    operationId: 'savePlanPropertyLayout',
+    method: 'PATCH',
+    path: '/api/v1/staff/workspaces/{workspaceId}/properties/layouts',
+    summary:
+      'Save the plan record layout: the same as `savePropertyLayout` with `object=plan`, with no lead type in the path (property management).',
+    auth: 'staff',
+    successStatus: 200,
+    query: propertyObjectQuerySchema,
+    request: savePropertyLayoutRequestSchema,
+    response: propertyLayoutResponseSchema,
+  },
+  {
     operationId: 'listSavedViews',
     method: 'GET',
     path: '/api/v1/staff/workspaces/{workspaceId}/views',
@@ -785,6 +822,16 @@ export const endpoints: readonly EndpointDef[] = [
     successStatus: 200,
     request: updateEmailSettingsRequestSchema,
     response: emailSettingsResponseSchema,
+  },
+  {
+    operationId: 'getEmailDelivery',
+    method: 'GET',
+    path: '/api/v1/email/staff/workspaces/{workspaceId}/delivery',
+    summary:
+      "The site's newest 200 customer mails with how each went, and the delivery counters (queued, sent, delivered, failed, uncertain), for roles that may see mail delivery.",
+    auth: 'staff',
+    successStatus: 200,
+    response: emailDeliveryResponseSchema,
   },
   {
     operationId: 'listEmailTemplates',

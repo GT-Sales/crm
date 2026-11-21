@@ -1,20 +1,23 @@
-import { describe, expect, it } from 'vitest';
+import { FakeOwnerAlertChannel, type OwnerAlertChannel } from '@gt-sales/adapters';
+import { describe, expect, it, vi } from 'vitest';
 
 import { S3ArchiveWriter } from '../src/archive/archive-store.js';
 import type { RunCommand, RunCommandInput } from '../src/archive/command.js';
 import { AgeCliEncryptor } from '../src/archive/encryptor.js';
-import { backupFailedLogLine, buildBackupDependencies } from '../src/backup/cli.js';
+import {
+  alertMissingObjects,
+  backupCompletedLogLine,
+  backupFailedLogLine,
+  buildBackupDependencies,
+} from '../src/backup/cli.js';
 import { PgDumpDatabaseExporter } from '../src/backup/pg-dump.js';
 import {
   BackupIncompleteError,
   BackupSourceUnreadableError,
   BackupUploadVerificationError,
+  type BackupRunSummary,
 } from '../src/backup/run.js';
-import {
-  PsqlReferencedObjectManifestSource,
-  PsqlSourceCompletenessGuard,
-  S3StorageSourceReader,
-} from '../src/backup/sources.js';
+import { PsqlSourceCompletenessGuard, S3StorageSourceReader } from '../src/backup/sources.js';
 
 const NOW = new Date('2026-10-29T06:17:00.000Z');
 
@@ -76,7 +79,8 @@ describe('buildBackupDependencies', () => {
     expect(deps.encryptor).toBeInstanceOf(AgeCliEncryptor);
     expect(deps.archiveWriter).toBeInstanceOf(S3ArchiveWriter);
     expect(deps.database).toBeInstanceOf(PgDumpDatabaseExporter);
-    expect(deps.referencedObjects).toBeInstanceOf(PsqlReferencedObjectManifestSource);
+    // The document list comes from the dump itself (#86); no second read of the database.
+    expect(deps).not.toHaveProperty('referencedObjects');
     expect(deps.storageSource).toBeInstanceOf(S3StorageSourceReader);
     expect(deps.guard).toBeInstanceOf(PsqlSourceCompletenessGuard);
 
@@ -258,5 +262,82 @@ describe('backupFailedLogLine', () => {
       errorCode: 'unknown_error',
       message: 'non_error_thrown',
     });
+  });
+});
+
+describe('a run that completed without some documents (#86)', () => {
+  const summary: BackupRunSummary = {
+    runId: 'run-1',
+    manifestKey: 'run-1/manifest.json.enc',
+    artifactCount: 5,
+    referencedObjectCount: 3,
+    purgedObjectCount: 1,
+    missingObjectCount: 1,
+    missingObjects: ['documents/w1/leads/abc'],
+    rowCountTables: 40,
+    durationMs: 1200,
+    heartbeatPublished: true,
+  };
+
+  it('logs the count and the opaque labels with the completion', () => {
+    expect(backupCompletedLogLine('gt-sales', summary)).toEqual({
+      event: 'backup_completed',
+      deployment: 'gt-sales',
+      runId: 'run-1',
+      artifactCount: 5,
+      referencedObjectCount: 3,
+      purgedObjectCount: 1,
+      missingObjectCount: 1,
+      missingObjects: ['documents/w1/leads/abc'],
+      rowCountTables: 40,
+      durationMs: 1200,
+    });
+    expect(
+      backupCompletedLogLine('gt-sales', { ...summary, missingObjectCount: 0, missingObjects: [] }),
+    ).not.toHaveProperty('missingObjects');
+  });
+
+  it('alerts the owner once with the count and labels, and never when nothing is missing', async () => {
+    const channel = new FakeOwnerAlertChannel();
+    await alertMissingObjects('gt-sales', summary, () => channel, NOW);
+    expect(channel.sent).toEqual([
+      {
+        kind: 'backup_objects_missing',
+        detail: 'gt-sales:run-1:missing_objects:1:documents/w1/leads/abc',
+        occurredAt: NOW.toISOString(),
+      },
+    ]);
+    const quiet = new FakeOwnerAlertChannel();
+    await alertMissingObjects(
+      'gt-sales',
+      { ...summary, missingObjectCount: 0, missingObjects: [] },
+      () => quiet,
+      NOW,
+    );
+    expect(quiet.sent).toEqual([]);
+  });
+
+  it('only logs an alert that cannot be delivered; the backup stays a success', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const failing: OwnerAlertChannel = {
+        send: async () => {
+          throw new Error('alert_failed');
+        },
+      };
+      await expect(
+        alertMissingObjects('gt-sales', summary, () => failing, NOW),
+      ).resolves.toBeUndefined();
+      expect(logged).toHaveBeenCalledWith(
+        JSON.stringify({
+          event: 'backup_alert_delivery_failed',
+          deployment: 'gt-sales',
+          runId: 'run-1',
+          message: 'alert_failed',
+        }),
+      );
+    } finally {
+      logged.mockRestore();
+    }
   });
 });

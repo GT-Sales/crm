@@ -406,6 +406,7 @@ async function seed(): Promise<void> {
     const asked = await new DatabaseChangeRequestStore(database).requestChange({
       ...simWebsite,
       leadId: ordered.lead.id,
+      normalizedEmail: 'nadia@example.test',
       fields: { phone: '647 555 0299', arrivalDate: '2026-11-27' },
       now: new Date(),
     });

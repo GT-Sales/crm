@@ -81,6 +81,8 @@ databaseTest('tracking store and service (challenges and the customer’s orders
     createdAt: Date;
     deletedAt?: Date | null;
     restrictedAt?: Date | null;
+    /** When it was submitted; absent, the column stays empty (an imported order). */
+    submittedAt?: Date | null;
     form?: Record<string, postgres.JSONValue>;
     orderDetails?: Record<string, postgres.JSONValue>;
     fullName?: string;
@@ -89,13 +91,14 @@ databaseTest('tracking store and service (challenges and the customer’s orders
     const [row] = await admin<{ id: string }[]>`
       insert into app.leads (workspace_id, lead_type, status, stage, full_name, email, phone,
         external_ref, payload, order_details, consent_version, deleted_at,
-        customer_data_restricted_at, created_at, updated_at)
+        customer_data_restricted_at, submitted_at, created_at, updated_at)
       values (${values.site ?? SITE}, ${values.leadType ?? 'sim_order'}, ${values.status ?? 'submitted'},
         ${values.stage}, ${values.fullName ?? 'Nadia Khan'}, ${values.email}, ${values.phone ?? null},
         ${values.externalRef ?? null},
         ${values.form ? admin.json({ schemaVersion: 1, payload: values.form }) : null},
         ${admin.json(values.orderDetails ?? {})}, 'ci', ${values.deletedAt ?? null},
-        ${values.restrictedAt ?? null}, ${values.createdAt}, ${values.createdAt})
+        ${values.restrictedAt ?? null}, ${values.submittedAt ?? null}, ${values.createdAt},
+        ${values.createdAt})
       returning id
     `;
     if (!row) throw new Error('the lead was not inserted');
@@ -628,6 +631,34 @@ databaseTest('tracking store and service (challenges and the customer’s orders
       await admin`delete from app.leads where id in (${imported}, ${noDocuments}, ${odd})`;
     });
 
+    it('dates and orders an order by when it was submitted, an imported one by its own date (#94)', async () => {
+      const email = 'sofia.d94@example.com';
+      // A draft started 30 days ago and submitted 2 days ago; one started and
+      // submitted 5 days ago; an imported order of 3 days ago (no stamp).
+      const lateSubmit = await insertLead({
+        stage: 'pending',
+        email,
+        externalRef: 'MS-69401',
+        createdAt: days(30),
+        submittedAt: days(2),
+      });
+      await insertLead({
+        stage: 'pending',
+        email,
+        externalRef: 'MS-69402',
+        createdAt: days(5),
+        submittedAt: days(5),
+      });
+      await insertLead({ stage: 'pending', email, externalRef: 'MS-69403', createdAt: days(3) });
+      const orders = await store.listOrders({ ...scope, normalizedEmail: email });
+      expect(orders.map((order) => [order.reference, order.submittedAt])).toEqual([
+        ['MS-69401', days(2).toISOString()],
+        ['MS-69403', days(3).toISOString()],
+        ['MS-69402', days(5).toISOString()],
+      ]);
+      expect(lateSubmit).toBeTruthy();
+    });
+
     it('lists nothing for another email, and a grant from another site reads nothing', async () => {
       expect(
         await service.listOrders(scope, {
@@ -658,13 +689,13 @@ databaseTest('tracking store and service (challenges and the customer’s orders
     it('reads a document approved, then received once a newer upload replaces it', async () => {
       const lead = leadIds['pending'] ?? '';
       await admin`delete from app.files where workspace_id = ${SITE} and record_id = ${lead}`;
-      const file = async (key: string, createdAt: Date) => {
+      const file = async (key: string, createdAt: Date, id: string = crypto.randomUUID()) => {
         const [row] = await admin<{ id: string }[]>`
-          insert into app.files (workspace_id, record_type, record_id, document_type, bucket,
+          insert into app.files (id, workspace_id, record_type, record_id, document_type, bucket,
             staging_key, candidate_key, object_key, declared_content_type, detected_mime,
             declared_size_bytes, size_bytes, checksum_sha256, status, uploaded_by, expires_at,
             finalized_at, created_at, updated_at)
-          values (${SITE}, 'lead', ${lead}, 'passport', 'ci', ${`staging/${key}`}, ${`docs/${key}`},
+          values (${id}, ${SITE}, 'lead', ${lead}, 'passport', 'ci', ${`staging/${key}`}, ${`docs/${key}`},
             ${`docs/${key}`}, 'application/pdf', 'application/pdf', 100, 100, ${'a'.repeat(64)},
             'available', ${CREDENTIAL}, ${createdAt}, ${createdAt}, ${createdAt}, ${createdAt})
           returning id
@@ -685,8 +716,10 @@ databaseTest('tracking store and service (challenges and the customer’s orders
       `;
       expect(await passport()).toBe('approved');
 
-      const second = await file(`${lead}-2`, days(8));
+      // Superseded first, as the backend does: one current file per type (#81).
+      const second = crypto.randomUUID();
       await admin`update app.files set superseded_by_file_id = ${second} where id = ${first}`;
+      await file(`${lead}-2`, days(8), second);
       expect(await passport()).toBe('received');
 
       await admin`
@@ -759,6 +792,65 @@ databaseTest('tracking store and service (challenges and the customer’s orders
       } finally {
         warn.mockRestore();
         await admin`delete from app.leads where id in (${good}, ${blankRef}, ${badDocument})`;
+      }
+    });
+
+    it('tells apart two orders of one email that share a number across lead types', async () => {
+      const email = 'dora.shared@example.com';
+      const older = await insertLead({
+        stage: 'pending',
+        email,
+        externalRef: 'MS-6590',
+        createdAt: days(3),
+      });
+      const newer = await insertLead({
+        leadType: 'internet',
+        stage: 'new',
+        email,
+        externalRef: 'MS-6590',
+        createdAt: days(1),
+      });
+      const alone = await insertLead({
+        stage: 'pending',
+        email,
+        externalRef: 'MS-6591',
+        createdAt: days(2),
+      });
+      try {
+        const grant = {
+          workspaceId: SITE,
+          normalizedEmail: email,
+          emailHash: emailBindingHash(SECRET, SITE, email),
+        };
+        const orders = await service.listOrders(scope, grant);
+        // The shared number is handed out with its lead type; a unique one is not.
+        expect(orders.map((order) => order.reference).sort()).toEqual([
+          'MS-6591',
+          'internet:MS-6590',
+          'sim_order:MS-6590',
+        ]);
+        expect(await service.resolveLead(scope, grant, 'sim_order:MS-6590')).toMatchObject({
+          leadId: older,
+          leadType: 'sim_order',
+        });
+        expect(await service.resolveLead(scope, grant, 'internet:MS-6590')).toMatchObject({
+          leadId: newer,
+          leadType: 'internet',
+        });
+        // A lead type the customer has no such order in, or another email's, finds nothing.
+        expect(await service.resolveLead(scope, grant, 'mobility:MS-6590')).toBeUndefined();
+        expect(
+          await service.resolveLead(
+            scope,
+            { ...grant, normalizedEmail: 'omar@example.com' },
+            'sim_order:MS-6590',
+          ),
+        ).toBeUndefined();
+        // Unique numbers resolve as they always did, and a bare shared number takes the newest.
+        expect(await service.resolveLead(scope, grant, 'MS-6591')).toMatchObject({ leadId: alone });
+        expect(await service.resolveLead(scope, grant, 'MS-6590')).toMatchObject({ leadId: newer });
+      } finally {
+        await admin`delete from app.leads where id in (${older}, ${newer}, ${alone})`;
       }
     });
 

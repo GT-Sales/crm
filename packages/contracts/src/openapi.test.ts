@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildOpenApiDocument, endpoints } from './index';
+import { buildOpenApiDocument, emailDeliveryResponseSchema, endpoints } from './index';
 
 /** Narrow an unknown JSON value to an object without a cast. */
 function asObject(value: unknown): Record<string, unknown> {
@@ -179,5 +179,39 @@ describe('OpenAPI generation', () => {
       const header = parameters.map(asObject).find((entry) => entry['name'] === 'Idempotency-Key');
       expect(header).toMatchObject({ in: 'header', required: false });
     }
+  });
+
+  it('documents the mail delivery view and both property layout routes the backend serves', () => {
+    const paths = asObject(doc['paths']);
+    const delivery = asObject(
+      asObject(paths['/api/v1/email/staff/workspaces/{workspaceId}/delivery'])['get'],
+    );
+    expect(delivery['operationId']).toBe('getEmailDelivery');
+    expect(delivery['security']).toEqual([{ staffSession: [] }]);
+
+    const layouts = asObject(paths['/api/v1/staff/workspaces/{workspaceId}/properties/layouts']);
+    expect(asObject(layouts['patch'])['operationId']).toBe('savePlanPropertyLayout');
+    const byType = asObject(
+      paths['/api/v1/staff/workspaces/{workspaceId}/properties/layouts/{leadType}'],
+    );
+    expect(asObject(byType['patch'])['operationId']).toBe('savePropertyLayout');
+  });
+
+  it('describes the delivery response with queued mail counted apart from sent', () => {
+    const row = {
+      messageId: 'm1',
+      template: 'order_received',
+      status: 'queued',
+      providerId: null,
+      lastErrorCode: null,
+      createdAt: '2026-11-14T15:00:00.000Z',
+      updatedAt: '2026-11-14T15:00:00.000Z',
+    };
+    const summary = { queued: 1, sent: 0, delivered: 0, failed: 0, uncertain: 0 };
+    expect(emailDeliveryResponseSchema.safeParse({ messages: [row], summary }).success).toBe(true);
+    expect(
+      emailDeliveryResponseSchema.safeParse({ messages: [{ ...row, status: 'weird' }], summary })
+        .success,
+    ).toBe(false);
   });
 });

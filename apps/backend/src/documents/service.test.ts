@@ -86,6 +86,38 @@ describe('DocumentService.runCleanup backup-lease gate', () => {
     );
   });
 
+  it('deletes an expired upload once, as before, while the deletion record is not applied (0045)', async () => {
+    const store = new InMemoryDocumentRecordStore();
+    const r2 = new InMemoryR2DocumentStore();
+    const service = new DocumentService(store, r2, resolver);
+    await service.createIntent({
+      workspaceId: 'w1',
+      actorId: 'a1',
+      requestId: 'r1',
+      recordType: 'order',
+      recordId: 'order-1',
+      documentType: 'passport',
+      declaredContentType: 'application/pdf',
+      declaredSizeBytes: 10,
+    });
+    const claimDue = vi.fn();
+    const expiredService = new DocumentService(store, r2, resolver, {
+      now: () => new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      cleanupGraceSeconds: 0,
+      objectDeletions: {
+        ready: async () => false,
+        claimDue,
+        markDeleted: vi.fn(),
+        markFailed: vi.fn(),
+        enqueueLeftovers: vi.fn(),
+        countStuck: vi.fn(),
+      },
+    });
+    const swept = await expiredService.sweepExpired({ workspaceId: 'w1', actorId: 'a1' });
+    expect(swept).toEqual({ expiredIntents: 1, deletedObjects: 1, failedDeletes: 0 });
+    expect(claimDue).not.toHaveBeenCalled();
+  });
+
   it('defaults to no-op (never withholds) when no backup lease is configured', async () => {
     const store = new InMemoryDocumentRecordStore();
     const r2 = new InMemoryR2DocumentStore();

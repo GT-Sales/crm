@@ -22,6 +22,10 @@ import {
  * that do not parse are dropped rather than sent to the backend. Property
  * filters, sorts and columns are checked against the site's catalogue (the
  * code one when none is given).
+ *
+ * The free-text search (`q`) is the one exception: it is a customer's name,
+ * email or phone, so it is page state only, never read from the address and
+ * never written to it (issue #83). `LeadsInbox` holds it and fills it in.
  */
 export interface InboxQuery {
   /** One lead type, or every type when absent. */
@@ -40,6 +44,7 @@ export interface InboxQuery {
   view?: string;
   stage?: string;
   assignee?: LeadAssigneeFilter;
+  /** The free-text search: page state, never in the URL. */
   q?: string;
   /** Property filters combined with AND (`?where=[...]`). */
   where?: readonly LeadPropertyFilter[];
@@ -153,7 +158,6 @@ export function parseInboxQuery(
     ...(view ? { view } : {}),
     stage: type ? parsed(leadStageSchema.safeParse(params.get('stage'))) : undefined,
     assignee: parsed(leadAssigneeFilterSchema.safeParse(params.get('assignee'))),
-    q: parsed(leadSearchSchema.safeParse(params.get('q'))),
     where,
     sort,
     columns,
@@ -188,6 +192,14 @@ export function filterQueryForLeadType(
   };
 }
 
+/**
+ * The search text of a link from before #83 (`?q=avery`), so the inbox can
+ * take it into page state once and rewrite the address without it.
+ */
+export function legacySearchParam(params: ReadableParams): string | undefined {
+  return parsed(leadSearchSchema.safeParse(params.get('q')));
+}
+
 export function inboxSearch(query: InboxQuery): string {
   const params = new URLSearchParams();
   if (query.archived) params.set('archived', '1');
@@ -197,7 +209,6 @@ export function inboxSearch(query: InboxQuery): string {
   if (query.view) params.set('view', query.view);
   if (query.stage && query.type) params.set('stage', query.stage);
   if (query.assignee) params.set('assignee', query.assignee);
-  if (query.q) params.set('q', query.q);
   if (query.where && query.where.length > 0 && !query.archived) {
     params.set('where', JSON.stringify(query.where));
   }

@@ -1,5 +1,9 @@
 #!/usr/bin/env node
-import { createErrorTrackerFromEnv } from '@gt-sales/adapters';
+import {
+  createErrorTrackerFromEnv,
+  createOwnerAlertChannelFromEnv,
+  type OwnerAlertChannel,
+} from '@gt-sales/adapters';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -15,12 +19,9 @@ import {
   createBackupRunId,
   runBackup,
   type BackupRunDependencies,
+  type BackupRunSummary,
 } from './run.js';
-import {
-  PsqlReferencedObjectManifestSource,
-  PsqlSourceCompletenessGuard,
-  S3StorageSourceReader,
-} from './sources.js';
+import { PsqlSourceCompletenessGuard, S3StorageSourceReader } from './sources.js';
 
 /**
  * Entry point of the daily backup workflow (`pnpm --filter @gt-sales/jobs run
@@ -89,7 +90,6 @@ export function buildBackupDependencies(
     encryptor: new AgeCliEncryptor(ageRecipient, run),
     archiveWriter: new S3ArchiveWriter(archiveConfig, fetchImpl, ARCHIVE_WRITE_TIMEOUT_MS),
     database: new PgDumpDatabaseExporter(sourceDatabaseUrl, run, { authData, history }, env),
-    referencedObjects: new PsqlReferencedObjectManifestSource(sourceDatabaseUrl, run),
     storageSource: new S3StorageSourceReader(storageConfig, fetchImpl, STORAGE_READ_TIMEOUT_MS),
     // An auth table that would dump silently empty under row security fails
     // the run like an app table, whenever auth data is part of the dump. Only
@@ -136,6 +136,59 @@ export function backupFailedLogLine(
   };
 }
 
+/**
+ * The `backup_completed` log line: ids and counts, and the missing documents'
+ * opaque labels when the run had to complete without some (#86).
+ */
+export function backupCompletedLogLine(
+  deployment: string,
+  summary: BackupRunSummary,
+): Record<string, unknown> {
+  return {
+    event: 'backup_completed',
+    deployment,
+    runId: summary.runId,
+    artifactCount: summary.artifactCount,
+    referencedObjectCount: summary.referencedObjectCount,
+    purgedObjectCount: summary.purgedObjectCount,
+    missingObjectCount: summary.missingObjectCount,
+    ...(summary.missingObjectCount > 0 ? { missingObjects: summary.missingObjects } : {}),
+    rowCountTables: summary.rowCountTables,
+    durationMs: summary.durationMs,
+  };
+}
+
+/**
+ * A run that completed without some documents warns the owner once, through
+ * the monitor's alert channel (`backup_objects_missing`), with the count and
+ * the labels it can show. The alert is best effort: the backup itself has
+ * succeeded and its heartbeat is published, so a failed alert is only logged.
+ */
+export async function alertMissingObjects(
+  deployment: string,
+  summary: BackupRunSummary,
+  channel: () => OwnerAlertChannel,
+  now: Date,
+): Promise<void> {
+  if (summary.missingObjectCount === 0) return;
+  try {
+    await channel().send({
+      kind: 'backup_objects_missing',
+      detail: `${deployment}:${summary.runId}:missing_objects:${summary.missingObjectCount}:${summary.missingObjects.join(',')}`,
+      occurredAt: now.toISOString(),
+    });
+  } catch (error: unknown) {
+    console.error(
+      JSON.stringify({
+        event: 'backup_alert_delivery_failed',
+        deployment,
+        runId: summary.runId,
+        message: error instanceof Error ? error.message : 'non_error_thrown',
+      }),
+    );
+  }
+}
+
 async function main(): Promise<void> {
   const deployment = optionalEnv('BACKUP_DEPLOYMENT');
   let runId = optionalEnv('BACKUP_RUN_ID');
@@ -143,17 +196,14 @@ async function main(): Promise<void> {
     const deps = buildBackupDependencies(process.env, new Date());
     runId = deps.runId;
     const summary = await runBackup(deps);
-    console.info(
-      JSON.stringify({
-        event: 'backup_completed',
-        deployment: deps.deployment,
-        runId: summary.runId,
-        artifactCount: summary.artifactCount,
-        referencedObjectCount: summary.referencedObjectCount,
-        purgedObjectCount: summary.purgedObjectCount,
-        rowCountTables: summary.rowCountTables,
-        durationMs: summary.durationMs,
-      }),
+    const line = JSON.stringify(backupCompletedLogLine(deps.deployment, summary));
+    if (summary.missingObjectCount > 0) console.warn(line);
+    else console.info(line);
+    await alertMissingObjects(
+      deps.deployment,
+      summary,
+      () => createOwnerAlertChannelFromEnv({ env: process.env }),
+      new Date(),
     );
   } catch (error: unknown) {
     console.error(JSON.stringify(backupFailedLogLine(error, { deployment, runId })));

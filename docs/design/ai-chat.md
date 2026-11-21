@@ -43,6 +43,14 @@ memory only (§8).
 5. **The subject scope is unchanged.** The same tools, system prompt rules and
    refusal of unrelated subjects; an attached file is material for a CRM
    question, not an instruction and not a widening of what Ask AI answers.
+6. **A saved answer stays with the member who received it** (owner decision,
+   21 Nov 2026, issue #114). When a member's role or permissions are reduced
+   but they keep assistant access, their earlier answers stay readable in
+   their own chat and stay in the history replayed to the model, including
+   answers that drew on data they can no longer ask for (revenue,
+   commission): they saw it legitimately when it was written. Fresh answers
+   use the member's current permissions (`ai/read-tools.ts`). A member who
+   loses assistant access altogether gets 403 on every conversation (§3).
 
 ## 3. Trust boundaries and where they are enforced
 
@@ -104,7 +112,9 @@ refusal is an ordinary JSON error:
    it, locked; refuse a conversation this message created when the member
    would then have more than 500 on the site (`409
 conversation_limit_reached`, `details.limit`); refuse it when the two rows of this turn would
-   pass 200 messages (`409 conversation_full`); lock and check this message's
+   pass 200 messages (`409 conversation_full`), counting the stored rows plus
+   one reserved for each accepted question whose answer is not written yet, so
+   overlapping turns cannot pass the cap; lock and check this message's
    files (each the member's, `ready` and not yet sent, else
    `400 invalid_request`); insert the member's message with the request id
    (a second insert for the same id is `409 conflict`); link the files; move

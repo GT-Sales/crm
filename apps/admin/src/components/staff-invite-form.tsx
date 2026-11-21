@@ -73,12 +73,18 @@ export function StaffInviteForm({ workspaceSlug }: { workspaceSlug: string }) {
     if (!staff.accessToken || !workspace || activeRows.length === 0 || busy) return;
     setBusy(true);
     setMessage(undefined);
+    let sent = 0;
     try {
       for (const row of activeRows) {
         await inviteStaff(staff.accessToken, workspace.id, {
           email: row.email.trim(),
           roles: [...row.roles],
         });
+        sent += 1;
+        // A sent row leaves the form, so a retry after a later failure only
+        // sends the rows still waiting (a second send would be refused as a
+        // membership conflict and stop the whole retry).
+        setRows((current) => current.filter((item) => item.id !== row.id));
       }
       setRows([{ id: nextId, email: '', roles: ['viewer'] }]);
       setNextId((value) => value + 1);
@@ -88,7 +94,12 @@ export function StaffInviteForm({ workspaceSlug }: { workspaceSlug: string }) {
           : `${activeRows.length} invitations are pending. The recipients can now accept them from the sign-in page.`,
       );
     } catch (error) {
-      setMessage(describeError(error, 'send the invitation'));
+      const failure = describeError(error, 'send the invitation');
+      setMessage(
+        sent === 0
+          ? failure
+          : `${sent} of ${activeRows.length} invitations are pending and were removed from the list. ${failure}`,
+      );
     } finally {
       setBusy(false);
     }
