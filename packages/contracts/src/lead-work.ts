@@ -332,6 +332,22 @@ export const leadContactEditSchema = z
 export type LeadContactEdit = z.infer<typeof leadContactEditSchema>;
 
 /**
+ * The contact values the editor opened with, for the fields it saves: a save
+ * whose field was changed by someone else since then is refused
+ * (`409 version_conflict`, `details.fields`) instead of undoing their change
+ * (#89). Null is a field that was empty. Optional, for callers that check
+ * staleness their own way (an Ask AI card).
+ */
+export const leadContactExpectedSchema = z
+  .object({
+    fullName: z.string().max(160).nullable().optional(),
+    email: z.string().max(254).nullable().optional(),
+    phone: z.string().max(40).nullable().optional(),
+  })
+  .strict();
+export type LeadContactExpected = z.infer<typeof leadContactExpectedSchema>;
+
+/**
  * `PATCH /workspaces/:id/leads/:leadId`: any of stage, assignee, contact,
  * form corrections, custom values and order details, at least one. `form`
  * holds the type's editable fields (`leadFields`), each a new value or null
@@ -342,6 +358,8 @@ export const updateWorkspaceLeadRequestSchema = z
     stage: leadStageSchema.optional(),
     assignedActorId: z.uuid().nullable().optional(),
     contact: leadContactEditSchema.optional(),
+    /** With `contact`: each saved field's value when the editor opened. */
+    expectedContact: leadContactExpectedSchema.optional(),
     form: leadFormEditSchema.optional(),
     /** New values of custom properties by key, each a value or null to clear it. */
     customValues: z
@@ -361,6 +379,10 @@ export const updateWorkspaceLeadRequestSchema = z
   .refine((value) => value.documentsOverrideReason === undefined || value.stage !== undefined, {
     message: 'an override reason needs a stage',
     path: ['documentsOverrideReason'],
+  })
+  .refine((value) => value.expectedContact === undefined || value.contact !== undefined, {
+    message: 'an expected contact needs a contact',
+    path: ['expectedContact'],
   })
   .refine(
     (value) =>

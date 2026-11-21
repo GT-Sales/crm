@@ -261,7 +261,9 @@ function updateOutcome(outcome: UpdateLeadWorkOutcome, field?: string): StepResu
     case 'not_found':
     case 'trashed':
       return { outcome: 'skipped', reason: 'lead_archived' };
+    // A flow never sends an expected contact, so `contact_conflict` does not arise.
     case 'document_override_reason_required':
+    case 'contact_conflict':
       return { outcome: 'skipped', reason: 'step_failed' };
   }
 }

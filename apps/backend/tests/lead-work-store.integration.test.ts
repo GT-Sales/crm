@@ -446,6 +446,61 @@ databaseTest('DatabaseLeadWorkStore', () => {
     expect(JSON.stringify(stored)).not.toContain('0199');
   });
 
+  test('a contact save refuses a field someone else changed since the editor opened (#89)', async () => {
+    const leadId = await createInternetLead({
+      fullName: 'Morgan Typo',
+      email: 'morgan.stale@example.test',
+      phone: '403 555 0120',
+    });
+    // A colleague corrects the name while the editor is open.
+    const colleague = await work.updateLead({
+      ...writeScope,
+      leadId,
+      contact: { fullName: 'Morgan Fixed' },
+      expectedContact: { fullName: 'Morgan Typo' },
+    });
+    expect(colleague.status).toBe('updated');
+
+    // The stale editor still believes the name it opened with and saves it with a phone.
+    const stale = await work.updateLead({
+      ...writeScope,
+      leadId,
+      contact: { fullName: 'Morgan Typo', phone: '403 555 0121' },
+      expectedContact: { fullName: 'Morgan Typo', phone: '403 555 0120' },
+    });
+    expect(stale).toEqual({ status: 'contact_conflict', fields: ['fullName'] });
+    const [unchanged] = await admin<{ full_name: string; phone: string }[]>`
+      select full_name, phone from app.leads where id = ${leadId}
+    `;
+    expect(unchanged).toEqual({ full_name: 'Morgan Fixed', phone: '403 555 0120' });
+    const [contact] = await admin<{ full_name: string }[]>`
+      select c.full_name from app.contacts c
+      join app.leads l on l.contact_id = c.id where l.id = ${leadId}
+    `;
+    expect(contact?.full_name).toBe('Morgan Fixed');
+
+    // Only the touched field, with the value it opened with, saves and keeps the correction.
+    const phoneOnly = await work.updateLead({
+      ...writeScope,
+      leadId,
+      contact: { phone: '403 555 0121' },
+      expectedContact: { phone: '403 555 0120' },
+    });
+    if (phoneOnly.status !== 'updated') throw new Error('expected updated');
+    expect(phoneOnly.lead.contact).toMatchObject({
+      fullName: 'Morgan Fixed',
+      phone: '403 555 0121',
+    });
+
+    // A caller with no expectation (an Ask AI card checks its own) is not refused.
+    const unguarded = await work.updateLead({
+      ...writeScope,
+      leadId,
+      contact: { phone: '403 555 0122' },
+    });
+    expect(unguarded.status).toBe('updated');
+  });
+
   test('notes land on the timeline newest first and move the lead up the inbox', async () => {
     const leadId = await createInternetLead({
       fullName: 'Frankie Note',

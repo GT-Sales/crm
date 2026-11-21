@@ -7906,6 +7906,21 @@
                     },
                     "additionalProperties": false
                   },
+                  "expectedContact": {
+                    "type": "object",
+                    "properties": {
+                      "fullName": {
+                        "anyOf": [{ "type": "string", "maxLength": 160 }, { "type": "null" }]
+                      },
+                      "email": {
+                        "anyOf": [{ "type": "string", "maxLength": 254 }, { "type": "null" }]
+                      },
+                      "phone": {
+                        "anyOf": [{ "type": "string", "maxLength": 40 }, { "type": "null" }]
+                      }
+                    },
+                    "additionalProperties": false
+                  },
                   "form": {
                     "type": "object",
                     "propertyNames": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$" },

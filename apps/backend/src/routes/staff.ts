@@ -864,6 +864,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         stage: body.data.stage,
         assignedActorId: body.data.assignedActorId,
         contact: body.data.contact,
+        expectedContact: body.data.expectedContact,
         form: body.data.form,
         customValues: body.data.customValues,
         order: body.data.order,

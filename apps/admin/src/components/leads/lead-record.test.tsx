@@ -655,6 +655,88 @@ describe('LeadRecord documents', () => {
     });
   });
 
+  describe('the contact editor (#89)', () => {
+    async function openEditor() {
+      mocks.getStaffLead.mockResolvedValue(response());
+      render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+      await screen.findByRole('heading', { level: 1, name: 'Avery Example' });
+      const contact = screen.getByRole('heading', { name: 'Contact' }).parentElement;
+      if (!contact) throw new Error('The contact section is missing');
+      fireEvent.click(within(contact).getByRole('button', { name: 'Edit' }));
+    }
+    const corrected = response({
+      lead: { ...lead, contact: { ...lead.contact, fullName: 'Avery Corrected' } },
+    });
+
+    it('sends only the field staff changed, with its opened value, after the record reloads', async () => {
+      await openEditor();
+      fireEvent.change(screen.getByLabelText('Phone'), { target: { value: '403 555 0199' } });
+      // A colleague's saved name correction arrives while the editor is open.
+      mocks.getStaffLead.mockResolvedValue(corrected);
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent('crm:lead-work-saved', {
+            detail: { workspaceId: WORKSPACE, leadId: LEAD },
+          }),
+        );
+      });
+      await waitFor(() =>
+        expect(screen.getByLabelText<HTMLInputElement>('Name').value).toBe('Avery Corrected'),
+      );
+      expect(screen.getByLabelText<HTMLInputElement>('Phone').value).toBe('403 555 0199');
+      mocks.updateStaffLead.mockResolvedValue({
+        lead: { ...corrected.lead, contact: { ...corrected.lead.contact, phone: '403 555 0199' } },
+        activities: [],
+        allowedMoves: [],
+        requestId: NOW,
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+      await waitFor(() => expect(mocks.updateStaffLead).toHaveBeenCalledTimes(1));
+      expect(mocks.updateStaffLead).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD, {
+        contact: { phone: '403 555 0199' },
+        expectedContact: { phone: '403 555 0101' },
+      });
+    });
+
+    it('keeps what staff typed when the save is refused as stale, and says to reload', async () => {
+      const { BackendError } = await import('../../lib/api');
+      await openEditor();
+      fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Avery Mine' } });
+      mocks.updateStaffLead.mockRejectedValue(
+        new BackendError('version_conflict', 409, NOW, { fields: ['fullName'] }),
+      );
+      mocks.getStaffLead.mockResolvedValue(corrected);
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+      expect(
+        await screen.findByText(/Someone else changed the name while you were editing/, undefined, {
+          timeout: 3000,
+        }),
+      ).toBeTruthy();
+      expect(mocks.updateStaffLead).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD, {
+        contact: { fullName: 'Avery Mine' },
+        expectedContact: { fullName: 'Avery Example' },
+      });
+      // The record was read again; the typed name stays, now saved over the new one on purpose.
+      expect(screen.getByLabelText<HTMLInputElement>('Name').value).toBe('Avery Mine');
+      expect(
+        await screen.findByText('Now saved as: Avery Corrected', undefined, { timeout: 3000 }),
+      ).toBeTruthy();
+      mocks.updateStaffLead.mockResolvedValue({
+        lead: { ...lead, contact: { ...lead.contact, fullName: 'Avery Mine' } },
+        activities: [],
+        allowedMoves: [],
+        requestId: NOW,
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+      await waitFor(() =>
+        expect(mocks.updateStaffLead).toHaveBeenLastCalledWith('staff-token', WORKSPACE, LEAD, {
+          contact: { fullName: 'Avery Mine' },
+          expectedContact: { fullName: 'Avery Corrected' },
+        }),
+      );
+    });
+  });
+
   it('offers no View or Download without the permission, and says who can grant it', async () => {
     mocks.getStaffLead.mockResolvedValue(response({ documents: [passport] }));
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);

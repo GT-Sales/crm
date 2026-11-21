@@ -1045,6 +1045,34 @@ describe('staff lead work routes', () => {
     }
   });
 
+  it('passes the editor’s opened contact values on and answers a stale field with 409 (#89)', async () => {
+    work.updateLead.mockResolvedValueOnce({ status: 'contact_conflict', fields: ['fullName'] });
+    const response = await call(`${leadsUrl()}/${LEAD}`, {
+      method: 'PATCH',
+      body: {
+        contact: { phone: '403 555 0101' },
+        expectedContact: { phone: null },
+      },
+    });
+    expect(response.status).toBe(409);
+    const error = await errorCode(response);
+    expect(error.code).toBe('version_conflict');
+    expect(error.details).toEqual({ fields: ['fullName'] });
+    expect(work.updateLead).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        contact: { phone: '403 555 0101' },
+        expectedContact: { phone: null },
+      }),
+    );
+
+    // An expectation with nothing to save is a malformed request.
+    const alone = await call(`${leadsUrl()}/${LEAD}`, {
+      method: 'PATCH',
+      body: { stage: 'contacted', expectedContact: { phone: null } },
+    });
+    expect(alone.status).toBe(400);
+  });
+
   it('answers 500, never hangs, for an outcome the route does not know', async () => {
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
