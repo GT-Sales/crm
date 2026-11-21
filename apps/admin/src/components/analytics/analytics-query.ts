@@ -85,11 +85,12 @@ export function addDays(day: string, days: number): string {
 }
 
 function isDay(value: string | null | undefined): value is string {
-  return (
-    typeof value === 'string' &&
-    DAY.test(value) &&
-    new Date(`${value}T00:00:00.000Z`).toISOString().startsWith(value)
-  );
+  if (typeof value !== 'string' || !DAY.test(value)) return false;
+  // An impossible month such as 2026-13 makes the instant NaN, and
+  // toISOString would throw on it; an impossible day rolls over and fails
+  // the round trip below.
+  const instant = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(instant.getTime()) && instant.toISOString().startsWith(value);
 }
 
 function dayOf(year: number, month: number, date: number): string {

@@ -77,6 +77,12 @@ describe('dashboard URL state', () => {
     expect(parse('from=2026-09-01&to=2026-09-02').period).toBe('custom');
   });
 
+  it('does not throw on a month or day that is not a real date', () => {
+    expect(parse('period=custom&from=2026-13-01&to=2026-12-01')).toEqual(parse(''));
+    expect(parse('period=custom&from=2026-01-01&to=2026-00-10')).toEqual(parse(''));
+    expect(parse('period=custom&from=2026-01-00&to=2026-02-10')).toEqual(parse(''));
+  });
+
   it('builds the backend query, delivery only for SIM orders', () => {
     const state = parse('type=internet&delivery=esim&payment=pending');
     expect(analyticsQueryOf(state, 'internet')).toEqual({
