@@ -17,6 +17,7 @@ import {
 import { selectLeadPage } from '../src/leads/staff-queries.js';
 import { loadPropertyCatalog } from '../src/properties/catalog.js';
 import { disposableTestDatabaseUrl } from './support/flows.js';
+import { TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = disposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -28,7 +29,6 @@ const PLAN_A = '48000000-0000-4000-8000-000000008306';
 const PLAN_B = '48000000-0000-4000-8000-000000008307';
 const LEADS = [1, 2, 3, 4].map((n) => `38000000-0000-4000-8000-00000000830${n}`);
 const [L1 = '', L2 = '', L3 = '', L4 = ''] = LEADS;
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
 databaseTest('flow conditions mean what the inbox filters mean', () => {
   let admin: ReturnType<typeof postgres>;

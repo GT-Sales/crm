@@ -20,22 +20,7 @@ import type { StaffAccessSnapshot } from '../src/staff/authorization.js';
 import type { StaffStore } from '../src/staff/store.js';
 import type { WebsiteCredentialStore } from '../src/website/store.js';
 import { headersOf, readXlsx, rowByHeader, serialToDate, type ReadSheet } from './support/xlsx.js';
-
-function getDisposableTestDatabaseUrl(): string | undefined {
-  const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
-  const destructiveTestsEnabled = process.env.DB_TEST_ALLOW_DESTRUCTIVE === '1';
-  if (!migrationUrl && !destructiveTestsEnabled && !process.env.CI) return undefined;
-  if (!migrationUrl || !destructiveTestsEnabled) {
-    throw new Error(
-      'Database integration tests require TEST_MIGRATION_DATABASE_URL and DB_TEST_ALLOW_DESTRUCTIVE=1 together.',
-    );
-  }
-  const databaseName = decodeURIComponent(new URL(migrationUrl).pathname.slice(1));
-  if (!databaseName.endsWith('_test')) {
-    throw new Error('TEST_MIGRATION_DATABASE_URL must name a disposable database ending in _test.');
-  }
-  return migrationUrl;
-}
+import { getDisposableTestDatabaseUrl, TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = getDisposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -48,7 +33,6 @@ const COLLEAGUE = '27000000-0000-4000-8000-00000000e902';
 const FORMER = '27000000-0000-4000-8000-00000000e903';
 const MEMBERSHIP = '37000000-0000-4000-8000-00000000e901';
 const PLAN = '47000000-0000-4000-8000-00000000e901';
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
 type Json = Parameters<ReturnType<typeof postgres>['json']>[0];
 type JsonObject = Record<string, Json>;

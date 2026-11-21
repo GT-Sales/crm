@@ -13,22 +13,7 @@ import {
   DatabaseChangeRequestStore,
   type DecideInput,
 } from '../src/tracking/change-requests.js';
-
-function getDisposableTestDatabaseUrl(): string | undefined {
-  const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
-  const destructiveTestsEnabled = process.env.DB_TEST_ALLOW_DESTRUCTIVE === '1';
-  if (!migrationUrl && !destructiveTestsEnabled && !process.env.CI) return undefined;
-  if (!migrationUrl || !destructiveTestsEnabled) {
-    throw new Error(
-      'Database integration tests require TEST_MIGRATION_DATABASE_URL and DB_TEST_ALLOW_DESTRUCTIVE=1 together.',
-    );
-  }
-  const databaseName = decodeURIComponent(new URL(migrationUrl).pathname.slice(1));
-  if (!databaseName.endsWith('_test')) {
-    throw new Error('TEST_MIGRATION_DATABASE_URL must name a disposable database ending in _test.');
-  }
-  return migrationUrl;
-}
+import { getDisposableTestDatabaseUrl, TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = getDisposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -41,7 +26,6 @@ const STAFF = '00000000-0000-4000-8000-000000006812';
 const COLLEAGUE = '00000000-0000-4000-8000-000000006813';
 const OLD_PLAN = '00000000-0000-4000-8000-000000006821';
 const OTHER_PLAN = '00000000-0000-4000-8000-000000006822';
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 const NEW_PHONE = '+1 437 555 0188';
 const STAFF_PHONE = '+1 416 555 0000';
 const REQUESTED = {

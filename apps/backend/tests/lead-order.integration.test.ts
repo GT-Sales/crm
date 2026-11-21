@@ -17,22 +17,7 @@ import { DatabaseLeadStore, OrderIntakeError, type CreateLeadInput } from '../sr
 import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
 import { DatabasePlanStore } from '../src/plans/store.js';
 import { DatabasePropertyStore } from '../src/properties/store.js';
-
-function getDisposableTestDatabaseUrl(): string | undefined {
-  const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
-  const destructiveTestsEnabled = process.env.DB_TEST_ALLOW_DESTRUCTIVE === '1';
-  if (!migrationUrl && !destructiveTestsEnabled && !process.env.CI) return undefined;
-  if (!migrationUrl || !destructiveTestsEnabled) {
-    throw new Error(
-      'Database integration tests require TEST_MIGRATION_DATABASE_URL and DB_TEST_ALLOW_DESTRUCTIVE=1 together.',
-    );
-  }
-  const databaseName = decodeURIComponent(new URL(migrationUrl).pathname.slice(1));
-  if (!databaseName.endsWith('_test')) {
-    throw new Error('TEST_MIGRATION_DATABASE_URL must name a disposable database ending in _test.');
-  }
-  return migrationUrl;
-}
+import { getDisposableTestDatabaseUrl, TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = getDisposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -43,7 +28,6 @@ const OTHER_SITE = '1d000000-0000-4000-8000-000000000602';
 const LIST_SITE = '1d000000-0000-4000-8000-000000000603';
 const ACTOR = '2d000000-0000-4000-8000-000000000601';
 const REQUEST = '3d000000-0000-4000-8000-000000000601';
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
 // List site leads; ids sort L1 < L2 < L3 < L4.
 const L1 = '9d000000-0000-4000-8000-000000000001';

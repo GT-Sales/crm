@@ -34,7 +34,11 @@ import {
 } from '@gt-sales/contracts';
 import { createDatabaseClient, type DatabaseClient, type RateLimitInput } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
-import { setTestRuntimePassword, TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
+import {
+  getDisposableTestDatabaseUrl,
+  setTestRuntimePassword,
+  TEST_RUNTIME_PASSWORD,
+} from '@gt-sales/db/test-helpers';
 import type { StaffRoleName } from '@gt-sales/types';
 
 import { createApp } from '../src/app.js';
@@ -73,22 +77,6 @@ import { aiAttachmentSweep, runDocumentCleanup } from '../src/scheduler.js';
 import type { StaffAccessSnapshot } from '../src/staff/authorization.js';
 import type { StaffStore } from '../src/staff/store.js';
 import type { WebsiteCredentialStore } from '../src/website/store.js';
-
-function getDisposableTestDatabaseUrl(): string | undefined {
-  const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
-  const destructiveTestsEnabled = process.env.DB_TEST_ALLOW_DESTRUCTIVE === '1';
-  if (!migrationUrl && !destructiveTestsEnabled && !process.env.CI) return undefined;
-  if (!migrationUrl || !destructiveTestsEnabled) {
-    throw new Error(
-      'Database integration tests require TEST_MIGRATION_DATABASE_URL and DB_TEST_ALLOW_DESTRUCTIVE=1 together.',
-    );
-  }
-  const databaseName = decodeURIComponent(new URL(migrationUrl).pathname.slice(1));
-  if (!databaseName.endsWith('_test')) {
-    throw new Error('TEST_MIGRATION_DATABASE_URL must name a disposable database ending in _test.');
-  }
-  return migrationUrl;
-}
 
 const migrationUrl = getDisposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;

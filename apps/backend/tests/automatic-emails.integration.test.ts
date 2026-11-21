@@ -25,6 +25,7 @@ import { DatabaseLeadStore, type CreateLeadInput } from '../src/leads/store.js';
 import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
 import { DatabasePlanStore } from '../src/plans/store.js';
 import { disposableTestDatabaseUrl, seedBuiltInFlow } from './support/flows.js';
+import { TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = disposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -38,7 +39,6 @@ const LONG_SITE = '1a000000-0000-4000-8000-000000001005'; // a subject that can 
 const STAFF = '2a000000-0000-4000-8000-000000001001';
 const CREDENTIAL = '2a000000-0000-4000-8000-000000001002'; // the website's credential
 const REQUEST = '3a000000-0000-4000-8000-000000001001';
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 const SECRET = 'ci-email-contact-hash-secret-0123456789';
 
 const SITES = [SITE, QUIET_SITE, NO_SENDER_SITE, BROKEN_SITE, LONG_SITE];

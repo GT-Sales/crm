@@ -7,6 +7,7 @@ import { applyMigrations } from '@gt-sales/db/migrations';
 
 import { DatabaseStaffStore, INVITATION_TTL_DAYS } from '../src/staff/store.js';
 import { disposableTestDatabaseUrl } from './support/flows.js';
+import { TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 /**
  * Audit L-16: a staff invitation can be claimed for 14 days (migration 0031);
@@ -20,7 +21,6 @@ const databaseTest = migrationUrl ? describe : describe.skip;
 
 const SITE = '18000000-0000-4000-8000-000000008601';
 const OWNER = '28000000-0000-4000-8000-000000008601';
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
 databaseTest('staff invitation expiry', () => {
   let admin: ReturnType<typeof postgres>;

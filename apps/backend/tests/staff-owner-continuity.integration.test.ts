@@ -7,6 +7,7 @@ import { applyMigrations } from '@gt-sales/db/migrations';
 
 import { DatabaseStaffStore } from '../src/staff/store.js';
 import { disposableTestDatabaseUrl } from './support/flows.js';
+import { TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 /**
  * Removing a member serialises per site: two owners removing each other at
@@ -21,7 +22,6 @@ const SITE = '18000000-0000-4000-8000-000000008701';
 const OWNER_A = '28000000-0000-4000-8000-00000000870a';
 const OWNER_B = '28000000-0000-4000-8000-00000000870b';
 const MEMBER = '28000000-0000-4000-8000-00000000870c';
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
 databaseTest('staff removal and owner continuity', () => {
   let admin: ReturnType<typeof postgres>;

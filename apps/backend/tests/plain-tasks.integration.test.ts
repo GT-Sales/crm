@@ -19,6 +19,7 @@ import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
 import type { StaffStore } from '../src/staff/store.js';
 import type { WebsiteCredentialStore } from '../src/website/store.js';
 import { disposableTestDatabaseUrl, flowKey, insertActiveFlow } from './support/flows.js';
+import { TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = disposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -32,7 +33,6 @@ const VIEWER = '2b000000-0000-4000-8000-000000003803';
 const FINANCE = '2b000000-0000-4000-8000-000000003804';
 const OUTSIDER = '2b000000-0000-4000-8000-000000003805';
 const CREDENTIAL = '2b000000-0000-4000-8000-000000003806';
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
 const ROLES: Record<string, ('owner' | 'leads' | 'viewer' | 'finance')[]> = {
   [OWNER]: ['owner'],

@@ -17,6 +17,7 @@ import {
   insertActiveFlow,
   seedBuiltInFlow,
 } from './support/flows.js';
+import { TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = disposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -32,7 +33,6 @@ const OWNER = '28000000-0000-4000-8000-000000008401'; // owner on every site
 const MEMBER = '28000000-0000-4000-8000-000000008402'; // leads role on SITE
 const VIEWER = '28000000-0000-4000-8000-000000008403'; // viewer on ACCESS_SITE
 const LEFT = '28000000-0000-4000-8000-000000008404'; // revoked on SITE and ACCESS_SITE
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 const SECRET_VALUE = 'ZX-SECRET-9';
 
 const ENV: NodeJS.ProcessEnv = {

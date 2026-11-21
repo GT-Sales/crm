@@ -5,13 +5,13 @@ import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import { DatabaseAiReadService } from '../src/ai/read-service.js';
 import { resolveTaskDueWindow } from '../src/ai/windows.js';
 import { disposableTestDatabaseUrl } from './support/flows.js';
+import { TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = disposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
 
 const WORKSPACE = '1d000000-0000-4000-8000-000000003801';
 const ACTOR = '2d000000-0000-4000-8000-000000003801';
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 const NOW = new Date('2026-11-19T15:00:00.000Z');
 const DUE_ANY = resolveTaskDueWindow('any', NOW);
 const scope = { workspaceId: WORKSPACE, actorId: ACTOR };

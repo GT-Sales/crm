@@ -8,28 +8,13 @@ import { applyMigrations } from '@gt-sales/db/migrations';
 import { DatabaseDocumentStore } from '../src/documents/store.js';
 import { findMissingDocuments } from '../src/leads/documents-check.js';
 import { DatabaseTrackingStore } from '../src/tracking/store.js';
+import { getDisposableTestDatabaseUrl, TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 /**
  * Issue #81: one current file per lead and document type. Overlapping
  * attaches of one slot leave exactly one current file, the database refuses a
  * second, and the documents check and tracking read that same file.
  */
-
-function getDisposableTestDatabaseUrl(): string | undefined {
-  const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
-  const destructiveTestsEnabled = process.env.DB_TEST_ALLOW_DESTRUCTIVE === '1';
-  if (!migrationUrl && !destructiveTestsEnabled && !process.env.CI) return undefined;
-  if (!migrationUrl || !destructiveTestsEnabled) {
-    throw new Error(
-      'Database integration tests require TEST_MIGRATION_DATABASE_URL and DB_TEST_ALLOW_DESTRUCTIVE=1 together.',
-    );
-  }
-  const databaseName = decodeURIComponent(new URL(migrationUrl).pathname.slice(1));
-  if (!databaseName.endsWith('_test')) {
-    throw new Error('TEST_MIGRATION_DATABASE_URL must name a disposable database ending in _test.');
-  }
-  return migrationUrl;
-}
 
 const migrationUrl = getDisposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -39,7 +24,6 @@ const SITE = '00000000-0000-4000-8000-00000000c801';
 const STAFF = '00000000-0000-4000-8000-00000000c811';
 const CREDENTIAL = '00000000-0000-4000-8000-00000000c812';
 const EMAIL = 'slots.c801@example.com';
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 const UNIQUE_VIOLATION = '23505';
 
 databaseTest('one current document per lead and type (#81)', () => {

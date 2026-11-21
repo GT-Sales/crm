@@ -46,6 +46,7 @@ import type { StaffStore } from '../src/staff/store.js';
 import type { StaffAccessSnapshot } from '../src/staff/authorization.js';
 import type { WebsiteCredentialStore } from '../src/website/store.js';
 import { disposableTestDatabaseUrl, seedBuiltInFlow } from './support/flows.js';
+import { TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = disposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -58,7 +59,6 @@ const FINANCE = '2c000000-0000-4000-8000-000000003903';
 const REVOKED = '2c000000-0000-4000-8000-000000003904';
 const DENIED = '2c000000-0000-4000-8000-000000003905';
 const KEY = 'synthetic-wide-card-signing-key';
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 const MAIL_SECRET = 'ci-wide-card-contact-hash-secret';
 const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
 

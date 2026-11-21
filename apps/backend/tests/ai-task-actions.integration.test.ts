@@ -26,6 +26,7 @@ import type { ReportStore } from '../src/reports/store.js';
 import type { StaffStore } from '../src/staff/store.js';
 import type { WebsiteCredentialStore } from '../src/website/store.js';
 import { disposableTestDatabaseUrl } from './support/flows.js';
+import { TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = disposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -35,7 +36,6 @@ const OWNER = '2c000000-0000-4000-8000-000000003801';
 const FINANCE = '2c000000-0000-4000-8000-000000003802';
 const CREDENTIAL = '2c000000-0000-4000-8000-000000003803';
 const KEY = 'synthetic-plain-task-signing-key';
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 const NOW = new Date();
 const tomorrow = new Date(NOW.getTime() + 86_400_000).toISOString().slice(0, 10);
 

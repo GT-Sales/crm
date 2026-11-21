@@ -17,6 +17,7 @@ import {
   insertActiveFlow,
   seedBuiltInFlow,
 } from './support/flows.js';
+import { TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = disposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -29,7 +30,6 @@ const STAFF = '28000000-0000-4000-8000-000000008406';
 const CREDENTIAL = '28000000-0000-4000-8000-000000008407';
 const PLAN = '48000000-0000-4000-8000-000000008406';
 const OLD_PLAN = '48000000-0000-4000-8000-000000008408';
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
 const ENV: NodeJS.ProcessEnv = {
   EMAIL_PROVIDER: 'fake',

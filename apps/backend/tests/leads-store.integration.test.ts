@@ -7,25 +7,7 @@ import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import { idempotencyKeyHash, requestFingerprint } from '../src/leads/idempotency.js';
 import { DatabaseLeadStore, ExternalRefTakenError, LeadIdTakenError } from '../src/leads/store.js';
 import { DatabasePlanStore } from '../src/plans/store.js';
-
-function getDisposableTestDatabaseUrl(): string | undefined {
-  const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
-  const destructiveTestsEnabled = process.env.DB_TEST_ALLOW_DESTRUCTIVE === '1';
-
-  if (!migrationUrl && !destructiveTestsEnabled && !process.env.CI) return undefined;
-  if (!migrationUrl || !destructiveTestsEnabled) {
-    throw new Error(
-      'Database integration tests require TEST_MIGRATION_DATABASE_URL and DB_TEST_ALLOW_DESTRUCTIVE=1 together.',
-    );
-  }
-
-  const databaseName = decodeURIComponent(new URL(migrationUrl).pathname.slice(1));
-  if (!databaseName.endsWith('_test')) {
-    throw new Error('TEST_MIGRATION_DATABASE_URL must name a disposable database ending in _test.');
-  }
-
-  return migrationUrl;
-}
+import { getDisposableTestDatabaseUrl, TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = getDisposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -37,7 +19,6 @@ const WORKSPACE = '11000000-0000-4000-8000-000000000b01';
 const WORKSPACE_B = '11000000-0000-4000-8000-000000000b02';
 const ACTOR = '21000000-0000-4000-8000-000000000b01';
 const REQUEST_ID = '31000000-0000-4000-8000-000000000b01';
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
 const scope = { workspaceId: WORKSPACE, actorId: ACTOR, requestId: REQUEST_ID };
 const base = { ...scope, leadType: 'sim_order', consentVersion: 'terms-2026-09' };

@@ -23,25 +23,7 @@ import { nextSiteNumber } from '../src/leads/site-counter.js';
 import { DatabaseLeadStore } from '../src/leads/store.js';
 import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
 import { GCS_TABLES_DDL, GCS_TABLES_LOCK_KEY } from './support/legacy-getcanadasim.js';
-
-function getDisposableTestDatabaseUrl(): string | undefined {
-  const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
-  const destructiveTestsEnabled = process.env.DB_TEST_ALLOW_DESTRUCTIVE === '1';
-
-  if (!migrationUrl && !destructiveTestsEnabled && !process.env.CI) return undefined;
-  if (!migrationUrl || !destructiveTestsEnabled) {
-    throw new Error(
-      'Database integration tests require TEST_MIGRATION_DATABASE_URL and DB_TEST_ALLOW_DESTRUCTIVE=1 together.',
-    );
-  }
-
-  const databaseName = decodeURIComponent(new URL(migrationUrl).pathname.slice(1));
-  if (!databaseName.endsWith('_test')) {
-    throw new Error('TEST_MIGRATION_DATABASE_URL must name a disposable database ending in _test.');
-  }
-
-  return migrationUrl;
-}
+import { getDisposableTestDatabaseUrl, TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = getDisposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -89,7 +71,6 @@ function orderDetails(paymentStatus: string, carrierCommission: string) {
   return { planId: null, plan: null, quantity: 1, paymentStatus, carrierCommission };
 }
 const SHARED_EMAIL = 'kept.name@example.test';
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
 databaseTest('Get Canada Sim historical import', () => {
   let admin: ReturnType<typeof postgres>;
