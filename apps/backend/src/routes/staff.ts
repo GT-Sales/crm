@@ -1544,8 +1544,13 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         sendStaffAuthError(res, req.id, 'membership_not_found', 404);
         return;
       }
-      if (result === 'self') {
+      if (result === 'self' || result === 'last_owner') {
         sendStaffAuthError(res, req.id, 'invalid_request', 400);
+        return;
+      }
+      if (result === 'forbidden') {
+        // Removed from the site, or no longer an owner, since the check above.
+        sendStaffAuthError(res, req.id, 'permission_denied', 403);
         return;
       }
       res.json({ membershipId: membershipId.data, status: 'revoked', requestId: req.id });

@@ -53,7 +53,15 @@ export interface InviteStaffInput {
   requestId: string;
 }
 
-export type RevokeResult = 'revoked' | 'already_revoked' | 'not_found' | 'self';
+export type RevokeResult =
+  | 'revoked'
+  | 'already_revoked'
+  | 'not_found'
+  | 'self'
+  /** The caller is no longer an active owner, so may no longer remove anyone. */
+  | 'forbidden'
+  /** Removing this owner would leave the site without one. */
+  | 'last_owner';
 
 export interface StaffStore extends StaffAccessStore {
   bootstrapStaff(input: BootstrapStaffInput): Promise<StaffWorkspace[]>;
@@ -208,6 +216,29 @@ export class DatabaseStaffStore implements StaffStore {
     return this.database.withTenantTx(
       { actorId: input.actorId, workspaceId: input.workspaceId },
       async (tx) => {
+        // Serialised per site: the site's active owners are locked (in id
+        // order, so two removals cannot wait on each other) before anything is
+        // decided, so two owners removing each other at once take turns, and
+        // the second finds its own membership already revoked. Removing a
+        // member is an owner's action (`staff.remove`), checked before this
+        // transaction began and checked again here against the locked rows.
+        const owners = await tx.execute<{ id: string; userId: string | null }>(sql`
+          select m.id, m.user_id as "userId"
+          from app.memberships m
+          where m.workspace_id = ${input.workspaceId}
+            and m.membership_type = 'staff' and m.status = 'active'
+            and exists (
+              select 1
+              from app.membership_roles mr
+              join app.roles r on r.workspace_id = mr.workspace_id and r.id = mr.role_id
+              where mr.workspace_id = m.workspace_id and mr.membership_id = m.id
+                and r.name = 'owner'
+            )
+          order by m.id
+          for update of m
+        `);
+        if (!owners.some((owner) => owner.userId === input.actorId)) return 'forbidden';
+
         const [target] = await tx
           .select({ id: memberships.id, status: memberships.status, userId: memberships.userId })
           .from(memberships)
@@ -222,6 +253,12 @@ export class DatabaseStaffStore implements StaffStore {
         if (!target) return 'not_found';
         if (target.userId === input.actorId) return 'self';
         if (target.status === 'revoked') return 'already_revoked';
+        if (
+          owners.some((owner) => owner.id === target.id) &&
+          !owners.some((owner) => owner.id !== target.id)
+        ) {
+          return 'last_owner';
+        }
 
         await tx
           .update(memberships)
