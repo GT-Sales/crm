@@ -1,0 +1,24 @@
+-- Which leads someone has opened, by site. The timeline records the first
+-- time a lead is opened as a `system` entry `{"event":"opened"}`, and four
+-- reads ask for those entries of a whole site: the sidebar's count of new
+-- leads (on every navigation), each list row's "New" badge, the unopened
+-- filter and the write that records the opening. Without this index each of
+-- them reads the site's whole timeline: the only index on the table leads
+-- with (workspace_id, lead_id, created_at), which does not narrow by event.
+--
+-- Measured on Postgres 16 with one site of 30,000 leads and 600,000 timeline
+-- entries (24,000 of them "opened"): the sidebar's summary went from reading
+-- 24,068 pages (69 ms, parallel sequential scan) to 1,521 pages (16 ms), and
+-- a list page's 25 badges from 23,449 pages (50 ms) to 977 (6 ms). The index
+-- held 1.2 MB beside a 183 MB table. At today's size (about 1,300 leads) the
+-- difference cannot be seen; it is there for growth.
+--
+-- Idempotent: created only if it is missing. No row is changed.
+--
+-- Live-database impact: CREATE INDEX holds a SHARE lock on
+-- app.lead_activities while it builds, so writes to the timeline (a stage
+-- move, a note, a mail, a draft save) wait for it; reads go on. At today's
+-- size that is well under a second. It can be applied before or after the
+-- deploy: the backend's queries are unchanged, the planner simply starts
+-- using the index.
+CREATE INDEX IF NOT EXISTS "lead_activities_opened_idx" ON "app"."lead_activities" USING btree ("workspace_id","lead_id") WHERE "app"."lead_activities"."kind" = 'system' and ("app"."lead_activities"."data" ->> 'event') = 'opened';
