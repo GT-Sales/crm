@@ -109,7 +109,7 @@ databaseTest('Ask AI saved chat: history position and the message cap', () => {
 
   beforeEach(async () => {
     await cleanUp();
-    await admin`insert into app.workspaces (id, slug, name) values (${SITE}, 'ci-ai-turns', 'CI AI Turns')`;
+    await admin`insert into app.workspaces (id, slug, name) values (${SITE}, 'ci-ai-saved-chat-position', 'CI AI Saved Chat Position')`;
     await admin`
       insert into app.memberships (workspace_id, user_id, membership_type, status)
       values (${SITE}, ${MEMBER}, 'staff', 'active')
