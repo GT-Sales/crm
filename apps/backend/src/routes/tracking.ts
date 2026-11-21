@@ -380,6 +380,7 @@ export function createTrackingRouter(dependencies: TrackingRouteDependencies): R
         actorId: ctx.credentialId,
         requestId: req.id,
         leadId: lead.leadId,
+        normalizedEmail: verified.normalizedEmail,
         fields: body.data.fields,
         now: new Date(),
       });
@@ -487,6 +488,7 @@ export function createTrackingRouter(dependencies: TrackingRouteDependencies): R
           workspaceId: ctx.workspaceId,
           actorId: ctx.credentialId,
           leadId: lead.leadId,
+          normalizedEmail: verified.normalizedEmail,
           fileId: uploadId.data,
         });
         if (!held) {
@@ -525,6 +527,7 @@ export function createTrackingRouter(dependencies: TrackingRouteDependencies): R
           actorId: ctx.credentialId,
           requestId: req.id,
           leadId: lead.leadId,
+          normalizedEmail: verified.normalizedEmail,
           fileId: uploadId.data,
           now: new Date(),
         });

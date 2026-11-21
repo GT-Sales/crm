@@ -531,6 +531,11 @@ feature_not_ready`). The customer types an email; the website calls
     visa sent as a held upload; never the email. One pending request per
     order, replaced in place by the customer's next one; staff approve or
     reject it on the lead page, and the customer is emailed the decision.
+    The write and the held-upload finalize re-check, under the lead's lock,
+    that the order still carries the grant's email (answered `404
+order_not_found` when staff moved it to another customer meanwhile). A
+    request already pending when staff change the order's email is not voided
+    (a follow-up).
     `internet` and `mobility` orders are listed read-only
     (`canRequestChange: false`).
 

@@ -88,6 +88,7 @@ databaseTest('customer change requests and held documents', () => {
   ) =>
     store.requestChange({
       ...scope,
+      normalizedEmail: NADIA,
       requestId: crypto.randomUUID(),
       leadId,
       fields,
@@ -342,6 +343,7 @@ databaseTest('customer change requests and held documents', () => {
     if (requested.status !== 'saved') throw new Error('not saved');
     const attached = await store.attachDocument({
       ...scope,
+      normalizedEmail: NADIA,
       requestId: crypto.randomUUID(),
       leadId: lead,
       fileId: first.fileId,
@@ -364,6 +366,7 @@ databaseTest('customer change requests and held documents', () => {
     const second = await heldFile(lead);
     const replaced = await store.attachDocument({
       ...scope,
+      normalizedEmail: NADIA,
       requestId: crypto.randomUUID(),
       leadId: lead,
       fileId: second.fileId,
@@ -418,6 +421,7 @@ databaseTest('customer change requests and held documents', () => {
     const { fileId } = await heldFile(lead, 'visa');
     const outcome = await store.attachDocument({
       ...scope,
+      normalizedEmail: NADIA,
       requestId: crypto.randomUUID(),
       leadId: lead,
       fileId,
@@ -435,6 +439,7 @@ databaseTest('customer change requests and held documents', () => {
     expect(
       await store.attachDocument({
         ...scope,
+        normalizedEmail: NADIA,
         requestId: crypto.randomUUID(),
         leadId: other,
         fileId,
@@ -449,6 +454,7 @@ databaseTest('customer change requests and held documents', () => {
     const join = (fileId: string) =>
       store.attachDocument({
         ...scope,
+        normalizedEmail: NADIA,
         requestId: crypto.randomUUID(),
         leadId: lead,
         fileId,
@@ -488,6 +494,7 @@ databaseTest('customer change requests and held documents', () => {
     const attach = (leadId: string, fileId: string) =>
       service.attachDocument({
         ...scope,
+        normalizedEmail: NADIA,
         requestId: crypto.randomUUID(),
         leadId,
         fileId,
@@ -529,13 +536,61 @@ databaseTest('customer change requests and held documents', () => {
     expect(deleteObject).not.toHaveBeenCalled();
   });
 
+  it('refuses a customer whose email is no longer the order’s, writing nothing', async () => {
+    const lead = await insertLead({ stage: 'pending' });
+    const held = await heldFile(lead);
+    // Staff moved the order to another customer after the order was found by the grant's email.
+    await admin`update app.leads set email = 'someone.else@example.com' where id = ${lead}`;
+
+    expect(await requestChange(lead, { phone: PHONE })).toEqual({ status: 'not_found' });
+    expect(
+      await store.attachDocument({
+        ...scope,
+        normalizedEmail: NADIA,
+        requestId: crypto.randomUUID(),
+        leadId: lead,
+        fileId: held.fileId,
+        now: new Date(),
+      }),
+    ).toEqual({ status: 'not_found' });
+    expect(
+      await store.isHeldUpload({
+        ...scope,
+        normalizedEmail: NADIA,
+        leadId: lead,
+        fileId: held.fileId,
+      }),
+    ).toBe(false);
+    expect(await timeline(lead)).toEqual([]);
+    const [requests] = await admin<{ count: number }[]>`
+      select count(*)::int as count from app.change_requests where lead_id = ${lead}
+    `;
+    expect(requests?.count).toBe(0);
+
+    // The new owner's own email is accepted, and a different case or padding of it too.
+    expect(
+      (
+        await store.requestChange({
+          ...scope,
+          normalizedEmail: 'someone.else@example.com',
+          requestId: crypto.randomUUID(),
+          leadId: lead,
+          fields: { phone: PHONE },
+          now: new Date(),
+        })
+      ).status,
+    ).toBe('saved');
+    await admin`update app.leads set email = '  Nadia.Change@Example.com ' where id = ${lead}`;
+    expect((await requestChange(lead, { fullName: 'Nadia K.' })).status).toBe('saved');
+  });
+
   it('knows a held upload of the lead from any other file', async () => {
     const lead = await insertLead({ stage: 'pending' });
     const other = await insertLead({ stage: 'pending' });
     const held = await heldFile(lead);
     const plain = await currentPassport(lead);
     const isHeld = (leadId: string, fileId: string) =>
-      store.isHeldUpload({ ...scope, leadId, fileId });
+      store.isHeldUpload({ ...scope, normalizedEmail: NADIA, leadId, fileId });
     expect(await isHeld(lead, held.fileId)).toBe(true);
     expect(await isHeld(lead, plain)).toBe(false);
     expect(await isHeld(other, held.fileId)).toBe(false);

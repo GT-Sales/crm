@@ -572,7 +572,12 @@ describe('change requests', () => {
       expect.objectContaining({ normalizedEmail: JANE, reference: 'MS-901' }),
     );
     expect(changeStore.requestChange).toHaveBeenCalledWith(
-      expect.objectContaining({ workspaceId: WORKSPACE, actorId: CREDENTIAL, leadId: LEAD }),
+      expect.objectContaining({
+        workspaceId: WORKSPACE,
+        actorId: CREDENTIAL,
+        leadId: LEAD,
+        normalizedEmail: JANE,
+      }),
     );
   });
 
