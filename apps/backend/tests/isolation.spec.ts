@@ -313,7 +313,7 @@ databaseTest('Phase A tenant isolation gate', () => {
           'content-type': 'application/json',
           'x-staff-role': 'owner',
         },
-        body: JSON.stringify({ scopes: ['leads:write'] }),
+        body: JSON.stringify({ scopes: ['leads:write'], leadTypes: ['internet'] }),
       },
     );
     expect(escalation.status).toBe(403);

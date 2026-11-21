@@ -98,6 +98,7 @@ import { DatabaseSavedViewStore, type SavedViewStore } from '../views/store.js';
 import { generateServiceSecret } from '../website/credential.js';
 import { createSavedViewRoutes } from './views.js';
 import {
+  CredentialLeadTypesUnavailableError,
   DatabaseWebsiteCredentialStore,
   type ServiceCredentialRecord,
   type WebsiteCredentialStore,
@@ -352,6 +353,7 @@ function credentialSummary(record: ServiceCredentialRecord) {
   return {
     id: record.id,
     scopes: record.scopes,
+    leadTypes: record.leadTypes,
     createdAt: record.createdAt,
     revokedAt: record.revokedAt,
   };
@@ -1629,11 +1631,17 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         actorId: actor.actorId,
         workspaceId: workspaceId.data,
         scopes: body.data.scopes,
+        leadTypes: body.data.leadTypes,
         secretHash,
         requestId: req.id,
       });
       res.status(201).json({ credential: credentialSummary(record), secret, requestId: req.id });
     } catch (error) {
+      if (error instanceof CredentialLeadTypesUnavailableError) {
+        // Migration 0043 is not applied yet: a clean refusal, never a 500.
+        sendDomainError(res, req.id, 'credential_lead_types_unavailable', 503);
+        return;
+      }
       reportFailure(req, error);
       sendStaffAuthError(res, req.id, 'internal_error', 500);
     }

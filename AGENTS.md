@@ -51,6 +51,11 @@ The code was copied from the Canadian Plans platform and pruned
    rest, scoped, revocable; its row id is the actor for its writes) and prove a
    visitor owns a draft with a draft grant (`gtdg_…`). They can create and
    resume their own leads and upload documents against them, nothing else.
+   A key also names the lead types it may send
+   (`service_credentials.lead_types`, migration 0043, issue #84): a create or
+   a draft save of any other type is `403 lead_type_not_permitted` and writes
+   nothing (`website/credential-schema.ts`, checked inside the write's own
+   transaction in `leads/store.ts`).
 6. **Side effects go through the outbox** (`app.outbox_jobs`), never straight
    from a request handler: emails, analytics, alerts. Dedupe on
    `(workspace, job_type, dedupe_key)`. A mail the provider refuses outright

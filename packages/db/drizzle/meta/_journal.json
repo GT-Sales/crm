@@ -302,6 +302,20 @@
       "when": 1795291043279,
       "tag": "0042_restricted_attribution_trim",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1795291401123,
+      "tag": "0043_credential_lead_types",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1795291402463,
+      "tag": "0044_credential_lead_types_backfill",
+      "breakpoints": true
     }
   ]
 }

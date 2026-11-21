@@ -735,6 +735,14 @@ export const serviceCredentials = appSchema
         .array()
         .default(sql`array[]::text[]`)
         .notNull(),
+      /**
+       * The lead types this key may create and save (issue #84, migration
+       * 0043): a website lead of any other type is refused and nothing is
+       * stored. The backend always writes a list. Null means "not limited":
+       * only a key made by a backend from before the column has it, between
+       * the migration and that backend's replacement.
+       */
+      leadTypes: text('lead_types').array(),
       revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
       createdAt: createdAt(),
     },
