@@ -53,6 +53,7 @@ import { LATEST_REVIEW, currentLeadDocuments } from './documents-check.js';
 import { toLeadOrder } from './order.js';
 import { deriveSource } from './source.js';
 import { sentMailOf } from '../email/kept-text.js';
+import { draftSaveValuesOf, shownDraftValues } from './draft-changes.js';
 
 /**
  * The staff side's lead reads, as plain SQL with explicit table aliases. The
@@ -1167,15 +1168,24 @@ export function toLeadActivity(row: ActivityRow): LeadActivity {
     MAIL_EVENTS.has(Reflect.get(data, 'event'))
       ? sentMailOf(row.body)
       : undefined;
+  // A customer's draft save keeps the values they filled in in `body` too
+  // (issue #87, `draft-changes.ts`); none once their data is erased.
+  const draftSave =
+    row.kind === 'system' &&
+    Object.hasOwn(data, 'event') &&
+    Reflect.get(data, 'event') === 'draft_saved';
+  const draftValues = draftSave ? draftSaveValuesOf(row.body) : undefined;
   const parsed = leadActivitySchema.safeParse({
     ...data,
     ...(mail ?? {}),
+    ...(draftValues ? { values: draftValues } : {}),
     ...(row.mailStatus ? { mailStatus: row.mailStatus } : {}),
     id: row.id,
     actorId: row.actorId,
     kind: row.kind,
-    // A mail's body is served as `subject` and `text`, not twice.
-    body: mail ? undefined : (row.body ?? undefined),
+    // A mail's body is served as `subject` and `text`, and a draft save's as
+    // `values`, not twice.
+    body: mail || draftSave ? undefined : (row.body ?? undefined),
     createdAt: row.createdAt,
   });
   if (parsed.success) return parsed.data;
@@ -1381,14 +1391,23 @@ export async function selectLeadWithWork(
   `);
   if (!row) return undefined;
   const form = leadFormSchema.safeParse(row.payload);
+  const item = toLeadListItem(row);
   return {
     lead: {
-      ...toLeadListItem(row),
+      ...item,
       form: form.success ? form.data : null,
       customValues: toCustomValues(row.customValues, catalog),
       ...orderOf(row),
     },
-    activities: row.activities.map(toLeadActivity),
+    // A draft save's values are shown by the site's catalogue as it is now.
+    activities: row.activities.map(toLeadActivity).map((activity) =>
+      activity.kind === 'system' && activity.event === 'draft_saved' && activity.values
+        ? {
+            ...activity,
+            values: shownDraftValues(activity.values, item.leadType, catalog),
+          }
+        : activity,
+    ),
     tasks: row.tasks.map(toLeadTask),
     // A request this version cannot show (say, a newer lead type) is left
     // out rather than failing the page.

@@ -67,7 +67,12 @@ The code was copied from the Canadian Plans platform and pruned
    A mail to a lead's customer keeps its subject and plain text in its
    timeline entry's `body` (owner decision, 13 Nov 2026, for the lead's Mail
    tab; `email/kept-text.ts`). It sits with the notes, so erasing a customer's
-   data nulls it the same way; the address is still never stored.
+   data nulls it the same way; the address is still never stored. A
+   customer's draft save keeps the values they changed in its timeline
+   entry's `body` as well (owner decision, 21 Nov 2026, issue #87;
+   `leads/draft-changes.ts`): erased the same way, never in the entry's
+   `data`, a log or an audit event, and never a sensitive field's or an
+   unmodelled key's value.
 8. **No secrets in the repo.** Keys, passwords and customer data live in
    Railway/Vercel/Supabase. Treat the repository as public.
 9. **Demo-proof tests.** Integration suites run against a disposable database

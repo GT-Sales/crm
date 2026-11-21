@@ -90,6 +90,8 @@ const SYSTEM_EVENT_WORDS: Readonly<Record<string, string>> = {
   restored: 'restored',
   opened: 'opened',
   submitted: 'submitted',
+  // The fields are named by their labels; the customer's values are never projected.
+  draft_saved: 'customer changed their unfinished form',
   customer_emailed: 'email sent',
   customer_replied: 'customer replied',
   change_requested: 'change requested',

@@ -40,6 +40,7 @@ import {
 import { loadPlanForFreeze } from '../plans/store.js';
 import { sanitizeLogIdentifier } from '../http/logger.js';
 import { credentialPermitsLeadType } from '../website/credential-schema.js';
+import { draftSaveBody, draftSaveChanges } from './draft-changes.js';
 import { sanitizeAttribution } from './attribution.js';
 import {
   claimIdempotencyKey,
@@ -756,6 +757,7 @@ export class DatabaseLeadStore implements LeadStore {
             leadFullName: leads.fullName,
             leadEmail: leads.email,
             leadPhone: leads.phone,
+            leadCountryCode: leads.countryCode,
             leadType: leads.leadType,
             leadPayload: leads.payload,
             orderDetails: leads.orderDetails,
@@ -859,11 +861,13 @@ export class DatabaseLeadStore implements LeadStore {
             throw new UpdateRefused({ status: 'submission_incomplete', problem: ready.problem });
           }
         }
+        let planName: string | null = null;
         if (planId !== null && (input.order || input.submit)) {
           const found = await loadPlanForFreeze(tx, input.workspaceId, planId);
           if (!isPlanAvailable(found, grant.leadType)) {
             throw new UpdateRefused({ status: 'plan_not_available' });
           }
+          planName = found.plan.name;
           // A draft keeps the plan and quantity only; submission freezes the plan as sold now.
           updates.orderDetails = input.submit
             ? submittedOrder(found, quantity, now)
@@ -941,6 +945,38 @@ export class DatabaseLeadStore implements LeadStore {
             ...(updates.orderDetails ? { order: updates.orderDetails } : {}),
           },
         });
+        // Issue #87: what the customer really changed, with the values they
+        // filled in, on the staff timeline in this same transaction. A save
+        // that changes nothing writes no entry. The values go in `body`
+        // only, which a customer's erasure nulls (see `draft-changes.ts`).
+        const changes = draftSaveChanges({
+          leadType: grant.leadType,
+          before: {
+            contact: {
+              fullName: grant.leadFullName,
+              email: grant.leadEmail,
+              phone: grant.leadPhone,
+              countryCode: grant.leadCountryCode,
+            },
+            payload: storedPayload(grant.leadPayload),
+            planId: draftOrder.planId,
+            quantity: draftOrder.quantity,
+          },
+          contact: input.contact,
+          form: input.form,
+          order: input.order,
+          planName,
+        });
+        if (changes.fields.length > 0) {
+          await tx.insert(leadActivities).values({
+            workspaceId: input.workspaceId,
+            leadId: input.leadId,
+            actorId: input.actorId,
+            kind: 'system',
+            body: draftSaveBody(changes.values),
+            data: { event: 'draft_saved', fields: changes.fields },
+          });
+        }
         const moved = movedOnSubmit
           ? await recordSubmittedMove(tx, input, input.leadId)
           : undefined;
