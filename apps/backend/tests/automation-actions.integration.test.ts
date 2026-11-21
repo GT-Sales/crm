@@ -8,7 +8,8 @@ import { applyMigrations } from '@gt-sales/db/migrations';
 
 import { fireFlows } from '../src/automations/engine.js';
 import { customerEmailEnvironmentFromEnv } from '../src/email/senders.js';
-import { DatabaseLeadWorkStore, applyLeadUpdate } from '../src/leads/work-store.js';
+import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
+import { applyLeadUpdate } from '../src/leads/work-writes.js';
 import { DatabasePlanStore } from '../src/plans/store.js';
 import { loadPropertyCatalog } from '../src/properties/catalog.js';
 import {

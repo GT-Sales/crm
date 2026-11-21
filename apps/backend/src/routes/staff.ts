@@ -35,7 +35,8 @@ import { DatabaseEmailSettingsStore, type EmailSettingsStore } from '../email/se
 import { DatabaseIdentityStore, type IdentityStore } from '../leads/identity-store.js';
 import { DatabaseLeadExportStore, type LeadExportStore } from '../leads/export/store.js';
 import { DatabaseLeadStore, type LeadStore } from '../leads/store.js';
-import { DatabaseLeadWorkStore, type LeadWorkStore } from '../leads/work-store.js';
+import { DatabaseLeadWorkStore } from '../leads/work-store.js';
+import { type LeadWorkStore } from '../leads/work-types.js';
 import { DatabaseOutboxStore, type JobAdminStore } from '../jobs/store.js';
 import { DatabasePlanStore, type PlanStore } from '../plans/store.js';
 import { DatabaseAnalyticsStore, type AnalyticsStore } from '../analytics/store.js';

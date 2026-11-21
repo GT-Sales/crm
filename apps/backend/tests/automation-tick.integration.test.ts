@@ -16,7 +16,8 @@ import {
 import { FakeOwnerAlertChannel } from '@gt-sales/adapters';
 import { customerEmailEnvironmentFromEnv } from '../src/email/senders.js';
 import { DatabaseLeadStore } from '../src/leads/store.js';
-import { applyLeadUpdate, DatabaseLeadWorkStore } from '../src/leads/work-store.js';
+import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
+import { applyLeadUpdate } from '../src/leads/work-writes.js';
 import {
   addActiveVersion,
   disposableTestDatabaseUrl,

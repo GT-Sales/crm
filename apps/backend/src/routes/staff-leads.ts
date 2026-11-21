@@ -29,7 +29,7 @@ import { z } from 'zod';
 import { sendLeadUpdateRefusal } from '../http/lead-update-errors.js';
 import { sendStaffAuthError } from '../http/staff-errors.js';
 import { sendDomainError } from '../http/domain-errors.js';
-import { type LeadWorkStore, type TaskOutcome } from '../leads/work-store.js';
+import { type LeadWorkStore, type TaskOutcome } from '../leads/work-types.js';
 import { decideAccess, denyReasonOf, type StaffAccessSnapshot } from '../staff/authorization.js';
 import { moneyVisibilityOf } from '../staff/lead-visibility.js';
 import { leadAccessOf, type StaffRouteContext } from './staff-context.js';

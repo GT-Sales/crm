@@ -36,8 +36,8 @@ import {
   lockLead,
   type LeadUpdateContext,
   type LockedLead,
-  type UpdateLeadWorkInput,
-} from '../leads/work-store.js';
+} from '../leads/work-writes.js';
+import { type UpdateLeadWorkInput } from '../leads/work-types.js';
 import { loadPlanForFreeze } from '../plans/store.js';
 import type { WriteScope } from '../tenant-scope.js';
 import { lockRequest, selectPending, type ChangeRequestRow } from './change-request-rows.js';

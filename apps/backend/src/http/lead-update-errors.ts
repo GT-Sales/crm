@@ -1,6 +1,6 @@
 import type { Response } from 'express';
 
-import type { UpdateLeadWorkOutcome } from '../leads/work-store.js';
+import type { UpdateLeadWorkOutcome } from '../leads/work-types.js';
 import { sendDomainError } from './domain-errors.js';
 
 /** Every outcome of a lead update except success. */

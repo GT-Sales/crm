@@ -7,7 +7,8 @@ import { z } from 'zod';
 
 import { DatabaseDocumentStore } from '../src/documents/store.js';
 import { customerEmailEnvironmentFromEnv } from '../src/email/senders.js';
-import { DatabaseLeadWorkStore, type LeadUpdateContext } from '../src/leads/work-store.js';
+import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
+import { type LeadUpdateContext } from '../src/leads/work-writes.js';
 import {
   ChangeRequestService,
   DatabaseChangeRequestStore,

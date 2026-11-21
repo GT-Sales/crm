@@ -9,7 +9,8 @@ import { applyMigrations } from '@gt-sales/db/migrations';
 import { fireFlows, type FlowEvent } from '../src/automations/engine.js';
 import { customerEmailEnvironmentFromEnv } from '../src/email/senders.js';
 import { DatabaseLeadStore } from '../src/leads/store.js';
-import { DatabaseLeadWorkStore, applyLeadUpdate } from '../src/leads/work-store.js';
+import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
+import { applyLeadUpdate } from '../src/leads/work-writes.js';
 import {
   addActiveVersion,
   disposableTestDatabaseUrl,

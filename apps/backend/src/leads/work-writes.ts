@@ -1,0 +1,978 @@
+import { and, eq, sql } from 'drizzle-orm';
+import {
+  auditEvents,
+  leadActivities,
+  leads,
+  leadTasks,
+  type TenantTransaction,
+} from '@gt-sales/db';
+import {
+  ORDER_PROPERTY_KEYS,
+  ORDER_STORAGE_KEYS,
+  applyCustomValueEdits,
+  applyLeadFormEdit,
+  freezePlan,
+  isActiveTaskStatus,
+  isLeadStage,
+  isOrderLeadType,
+  leadFormSchema,
+  type LeadActivity,
+  type LeadDetail,
+  type LeadForm,
+  type LeadOrder,
+  type LeadOrderEdit,
+  type PlanSnapshot,
+  type LeadTask,
+  type LeadTaskStatus,
+  type PropertyCatalog,
+  type AutomationKey,
+} from '@gt-sales/contracts';
+import { fireFlows, type FlowSiteHolder } from '../automations/engine.js';
+import { taskDueDay, writeTimers } from '../automations/timers.js';
+import type { StaffNotificationEnvironment } from '../automations/staff-notification.js';
+import { type CustomerEmailEnvironment } from '../email/senders.js';
+import { loadPlanForFreeze } from '../plans/store.js';
+import { findMissingDocuments } from './documents-check.js';
+import { isPlanAvailable, submittedOrder, toLeadOrder } from './order.js';
+import { planStageMove, todayInToronto } from './stage-move.js';
+import { submittedAtReady } from './submitted-at-schema.js';
+import { isClosingStage } from './types.js';
+import { selectLeadDetail, selectTask, toLeadActivity } from './staff-queries.js';
+import type { WriteScope } from '../tenant-scope.js';
+import { upsertContact } from './store.js';
+import {
+  type TaskOutcome,
+  type UpdateLeadWorkInput,
+  type UpdateLeadWorkOutcome,
+  type UpdateTaskInput,
+} from './work-types.js';
+
+/**
+ * The steps of a write to a lead or a task, each inside the caller's tenant
+ * transaction: lock the row, change it, record the timeline entry and the
+ * audit event. `applyLeadUpdate` is the one path every lead change takes
+ * (staff edits, change-request approvals, automation steps and Ask AI's
+ * cards); `work-store.ts` wraps these in transactions.
+ */
+
+export interface LockedLead {
+  [key: string]: unknown;
+  id: string;
+  leadType: string;
+  /** `incomplete` until the customer submits the form, then `submitted`. */
+  status: string;
+  stage: string;
+  assignedActorId: string | null;
+  fullName: string | null;
+  email: string | null;
+  phone: string | null;
+  countryCode: string | null;
+  externalRef: string | null;
+  trashed: boolean;
+  payload: unknown;
+  customValues: unknown;
+  orderDetails: unknown;
+}
+
+const isStoredObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** The stored form, or an empty version-1 one for a lead that has none yet. */
+function storedForm(payload: unknown): LeadForm {
+  const form = leadFormSchema.safeParse(payload);
+  return form.success ? form.data : { schemaVersion: 1, payload: {} };
+}
+
+/**
+ * The lead, locked for the rest of the transaction; restricted leads do not
+ * exist here. Every write that also locks a change request locks the lead
+ * first, so the two never deadlock.
+ */
+export async function lockLead(
+  tx: TenantTransaction,
+  workspaceId: string,
+  leadId: string,
+): Promise<LockedLead | undefined> {
+  const [row] = await tx.execute<LockedLead>(sql`
+    select
+      l.id,
+      l.lead_type as "leadType",
+      l.status,
+      l.stage,
+      l.assigned_actor_id as "assignedActorId",
+      l.full_name as "fullName",
+      l.email,
+      l.phone,
+      l.country_code as "countryCode",
+      l.external_ref as "externalRef",
+      l.deleted_at is not null as trashed,
+      l.payload,
+      l.custom_values as "customValues",
+      l.order_details as "orderDetails"
+    from app.leads l
+    where l.workspace_id = ${workspaceId}
+      and l.id = ${leadId}
+      and l.customer_data_restricted_at is null
+    for update
+  `);
+  return row;
+}
+
+/** Only an active staff member of this site can be given a lead or a task. */
+export async function isActiveMember(
+  tx: TenantTransaction,
+  workspaceId: string,
+  actorId: string,
+): Promise<boolean> {
+  const rows = await tx.execute(sql`
+    select 1
+    from app.memberships m
+    where m.workspace_id = ${workspaceId}
+      and m.user_id = ${actorId}
+      and m.membership_type = 'staff'
+      and m.status = 'active'
+    limit 1
+  `);
+  return rows.length > 0;
+}
+
+export async function requireDetail(
+  tx: TenantTransaction,
+  workspaceId: string,
+  leadId: string,
+  catalog?: PropertyCatalog,
+): Promise<LeadDetail> {
+  const detail = await selectLeadDetail(tx, workspaceId, leadId, catalog);
+  if (!detail) throw new Error('lead vanished inside its own transaction');
+  return detail;
+}
+
+export async function requireTask(
+  tx: TenantTransaction,
+  workspaceId: string,
+  taskId: string,
+): Promise<LeadTask> {
+  const task = await selectTask(tx, workspaceId, taskId);
+  if (!task) throw new Error('task vanished inside its own transaction');
+  return task;
+}
+
+/** A timeline insert returns its entries, so the response needs no second read. */
+export const ACTIVITY_RETURNING = {
+  id: leadActivities.id,
+  actorId: leadActivities.actorId,
+  kind: leadActivities.kind,
+  body: leadActivities.body,
+  data: leadActivities.data,
+  createdAt: leadActivities.createdAt,
+};
+
+interface InsertedActivity {
+  id: string;
+  actorId: string;
+  kind: string;
+  body: string | null;
+  data: unknown;
+  createdAt: Date;
+}
+
+/** A newly written timeline row as an entry. */
+export function insertedActivity(row: InsertedActivity): LeadActivity {
+  return toLeadActivity({ ...row, createdAt: row.createdAt.toISOString() });
+}
+
+/** Entries in the lead page's order: newest first, ties (one transaction's entries) by id descending. */
+export function newestFirst(activities: readonly LeadActivity[]): LeadActivity[] {
+  return [...activities].sort((a, b) => {
+    if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
+    return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+  });
+}
+
+/** Newly written timeline rows as entries, in the lead page's order. */
+export function insertedActivities(rows: readonly InsertedActivity[]): LeadActivity[] {
+  return newestFirst(rows.map(insertedActivity));
+}
+
+const CONTACT_FIELDS = ['fullName', 'email', 'phone'] as const;
+type ContactField = (typeof CONTACT_FIELDS)[number];
+
+type OrderEditResult =
+  | {
+      ok: true;
+      /** The stored object with only the changed fields written over it. */
+      stored: Record<string, unknown>;
+      changedKeys: string[];
+    }
+  | { ok: false; field: string };
+
+/** The stored `order_details` as an object to write over; anything else reads as empty. */
+function storedObject(stored: unknown): Record<string, unknown> {
+  return typeof stored === 'object' && stored !== null && !Array.isArray(stored)
+    ? Object.fromEntries(Object.entries(stored))
+    : {};
+}
+
+/** JSON text with every object's keys sorted: a stored copy comes back from JSONB in its own key order. */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (typeof value === 'object' && value !== null) {
+    const entries = Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** Two frozen copies of one plan are the same when only the moment they were taken differs. */
+function sameSnapshot(a: PlanSnapshot | null, b: PlanSnapshot | null): boolean {
+  if (a === null || b === null) return a === b;
+  return canonicalJson({ ...a, frozenAt: '' }) === canonicalJson({ ...b, frozenAt: '' });
+}
+
+/** The dispatch and activation details: text or a date each, null clears one. */
+const ORDER_DETAIL_FIELDS = [
+  'courier',
+  'trackingNumber',
+  'dispatchedAt',
+  'activatedAt',
+  'activationNumber',
+  'activationAccount',
+] as const;
+
+/**
+ * The stored order as the audit trail keeps it: without the dispatch and
+ * activation details, whose activation number is the customer's phone and
+ * whose account and tracking number identify them too. The edit's
+ * `changedFields` names which of them changed; nothing scrubs an audit row.
+ */
+function auditedOrder(stored: unknown): Record<string, unknown> {
+  const details: ReadonlySet<string> = new Set(ORDER_DETAIL_FIELDS);
+  return Object.fromEntries(
+    Object.entries(storedObject(stored)).filter(([key]) => !details.has(key)),
+  );
+}
+
+/**
+ * The flow a write is made for (spec §5, R5): its key and name for the
+ * timeline, its version and run for the audit, and where it sits in a chain
+ * of flow moves (R8), so a move it makes fires the next flows one deeper.
+ */
+export interface AutomationAttribution {
+  key: AutomationKey;
+  name: string;
+  version: number;
+  runId: string;
+  depth: number;
+  chain: readonly string[];
+}
+
+/** What an automation's audit event says of it: `after.automation`. */
+function auditedAutomation(automation: AutomationAttribution) {
+  return { key: automation.key, version: automation.version, runId: automation.runId };
+}
+
+/** What an automation's timeline entry says of it: `automation` and `automationName`. */
+function entryAutomation(automation: AutomationAttribution | undefined): Record<string, string> {
+  return automation ? { automation: automation.key, automationName: automation.name } : {};
+}
+
+/** One audit event on a lead: by staff, or by an automation (`actorLabel` and `after.automation`). */
+async function auditLead(
+  tx: TenantTransaction,
+  scope: WriteScope & { leadId: string; automation?: AutomationAttribution },
+  action: string,
+  values: { before?: Record<string, unknown>; after: Record<string, unknown> },
+): Promise<void> {
+  const { automation } = scope;
+  await tx.insert(auditEvents).values({
+    workspaceId: scope.workspaceId,
+    actorId: scope.actorId,
+    actorLabel: automation ? 'automation' : 'staff actor',
+    action,
+    entity: 'lead',
+    entityId: scope.leadId,
+    requestId: scope.requestId,
+    before: values.before,
+    after: automation
+      ? { ...values.after, automation: auditedAutomation(automation) }
+      : values.after,
+  });
+}
+
+/**
+ * The one insert of a task, its audit and its timers; the staff routes, the
+ * flow step and Ask AI's confirmation all call it. The lead is the caller's,
+ * already locked; a plain task (`leadId` null) has none, and so no
+ * `task_overdue` timers: a flow runs on a lead.
+ */
+export async function insertLeadTask(
+  tx: TenantTransaction,
+  input: WriteScope & {
+    leadId: string | null;
+    title: string;
+    dueAt: string | null;
+    assignedActorId: string | null;
+    automation?: AutomationAttribution;
+    creationId?: string;
+    aiCardId?: string;
+  },
+): Promise<{ taskId: string }> {
+  const [row] = await tx
+    .insert(leadTasks)
+    .values({
+      ...(input.creationId === undefined ? {} : { id: input.creationId }),
+      workspaceId: input.workspaceId,
+      leadId: input.leadId,
+      title: input.title,
+      dueAt: input.dueAt ? new Date(input.dueAt) : null,
+      assignedActorId: input.assignedActorId,
+      createdBy: input.actorId,
+    })
+    .returning({ id: leadTasks.id });
+  if (!row) throw new Error('task insert did not return a row');
+  const after = {
+    leadId: input.leadId,
+    dueAt: input.dueAt,
+    assignedActorId: input.assignedActorId,
+    ...(input.creationId === undefined ? {} : { aiActionId: input.creationId }),
+    ...(input.aiCardId === undefined ? {} : { aiCardId: input.aiCardId }),
+  };
+  await tx.insert(auditEvents).values({
+    workspaceId: input.workspaceId,
+    actorId: input.actorId,
+    actorLabel: input.automation ? 'automation' : 'staff actor',
+    action: 'lead.task_created',
+    entity: 'lead_task',
+    entityId: row.id,
+    requestId: input.requestId,
+    after: input.automation ? { ...after, automation: auditedAutomation(input.automation) } : after,
+  });
+  if (input.dueAt && input.leadId !== null)
+    await writeTaskTimers(tx, input.workspaceId, input.leadId, row.id, input.dueAt);
+  return { taskId: row.id };
+}
+
+/** A task's `task_overdue` timers, for its due day (the lead's type read here). */
+async function writeTaskTimers(
+  tx: TenantTransaction,
+  workspaceId: string,
+  leadId: string,
+  taskId: string,
+  dueAt: string | Date,
+): Promise<void> {
+  const [lead] = await tx.execute<{ leadType: string }>(sql`
+    select l.lead_type as "leadType" from app.leads l
+    where l.workspace_id = ${workspaceId} and l.id = ${leadId}
+  `);
+  if (!lead) return;
+  await writeTimers(tx, {
+    workspaceId,
+    leadId,
+    leadType: lead.leadType,
+    event: { kind: 'task_due', taskId, dueDay: taskDueDay(dueAt) },
+  });
+}
+
+/**
+ * Staff's change to a lead's order: a new plan is frozen from the site's
+ * current plan (it must be active and of the lead's type, else the `plan`
+ * field is refused), null clears the link and the copy, and the quantity, the
+ * two statuses and the dispatch and activation details are set as given.
+ * Names the changed catalogue keys.
+ * Only the changed fields are written over the stored object: a key the
+ * parse does not know, or a stored value it cannot read, survives an
+ * unrelated edit, and so does the frozen copy while the plan stays the same.
+ */
+async function editOrder(
+  tx: TenantTransaction,
+  workspaceId: string,
+  lead: LockedLead,
+  edit: LeadOrderEdit,
+): Promise<OrderEditResult> {
+  if (!isOrderLeadType(lead.leadType)) return { ok: false, field: 'order' };
+  const current = toLeadOrder(lead.orderDetails);
+  const next: LeadOrder = { ...current };
+  const changed = new Set<keyof LeadOrderEdit>();
+
+  if (edit.planId === null) {
+    next.planId = null;
+    next.plan = null;
+  } else if (edit.planId !== undefined) {
+    const found = await loadPlanForFreeze(tx, workspaceId, edit.planId);
+    if (!isPlanAvailable(found, lead.leadType)) return { ok: false, field: 'plan' };
+    next.planId = found.plan.id;
+    next.plan = freezePlan(found.plan, found.visibleKeys, new Date());
+  }
+  if (next.planId !== current.planId || !sameSnapshot(next.plan, current.plan)) {
+    changed.add('planId');
+  }
+  if (edit.quantity !== undefined && edit.quantity !== current.quantity) {
+    next.quantity = edit.quantity;
+    changed.add('quantity');
+  }
+  if (edit.paymentStatus !== undefined && edit.paymentStatus !== current.paymentStatus) {
+    next.paymentStatus = edit.paymentStatus;
+    changed.add('paymentStatus');
+  }
+  if (
+    edit.carrierCommission !== undefined &&
+    edit.carrierCommission !== current.carrierCommission
+  ) {
+    next.carrierCommission = edit.carrierCommission;
+    changed.add('carrierCommission');
+  }
+  for (const field of ORDER_DETAIL_FIELDS) {
+    const value = edit[field];
+    if (value !== undefined && value !== current[field]) {
+      next[field] = value;
+      changed.add(field);
+    }
+  }
+  // Each changed field under its stored name (`ORDER_STORAGE_KEYS`: `plan` is
+  // `planId`); a new plan writes its frozen copy with it. A re-freeze of the
+  // same plan with nothing new keeps the copy already held, as stored.
+  const written: Record<string, unknown> = {};
+  const changedKeys: string[] = [];
+  for (const key of ORDER_PROPERTY_KEYS) {
+    const field = ORDER_STORAGE_KEYS[key];
+    if (!changed.has(field)) continue;
+    changedKeys.push(key);
+    written[field] = next[field];
+    if (field === 'planId') written['plan'] = next.plan;
+  }
+  return {
+    ok: true,
+    stored: { ...storedObject(lead.orderDetails), ...written },
+    changedKeys,
+  };
+}
+
+/**
+ * A rescued checkout's order, frozen as the website's submission would have
+ * frozen it (`submittedOrder`) when its `planId` names a plan still
+ * available for the type; else as stored (unfrozen). Other stored keys stay.
+ */
+async function rescuedOrder(
+  tx: TenantTransaction,
+  workspaceId: string,
+  lead: LockedLead,
+): Promise<unknown> {
+  if (!isOrderLeadType(lead.leadType)) return lead.orderDetails;
+  const draft = toLeadOrder(lead.orderDetails);
+  if (draft.planId === null) return lead.orderDetails;
+  const found = await loadPlanForFreeze(tx, workspaceId, draft.planId);
+  if (!isPlanAvailable(found, lead.leadType)) return lead.orderDetails;
+  const frozen = submittedOrder(found, draft.quantity, new Date());
+  return {
+    ...frozen,
+    ...storedObject(lead.orderDetails),
+    planId: frozen.planId,
+    plan: frozen.plan,
+    quantity: frozen.quantity,
+  };
+}
+
+/** What a lead update needs beyond its transaction: customer mail (the flows it sets off send it). */
+export interface LeadUpdateContext {
+  /** Set only by AI confirmation, never read from the staff PATCH body. */
+  aiActionId?: string;
+  emailEnvironment: CustomerEmailEnvironment;
+  /** The site snapshot the write's flows share (P23); a flow's own move passes its write's. */
+  siteHolder?: FlowSiteHolder;
+  /** P24, tests only: called once after the move's flows are read. */
+  afterFlowsRead?: () => Promise<void>;
+  /** What staff notification mail needs; read from the environment when absent. */
+  staffNotifications?: StaffNotificationEnvironment;
+  /** A flow's own write passes its write's list of started runs (counted once, at the end). */
+  startedRuns?: string[];
+  /**
+   * ENG-5: a person's write collects the runs its move starts here; they run
+   * after the write commits (`runQueuedStarts`), out of its lead lock.
+   */
+  queued?: string[];
+}
+
+/**
+ * Staff's change to a lead, in the caller's tenant transaction: locks the
+ * lead, applies the stage, assignee, contact, form, custom value and order
+ * edits it is given (a new plan re-frozen), writes the timeline (one `edit`
+ * entry naming the changed keys, never values) and a `lead.updated` audit,
+ * and runs the rules of a stage entered. A refusal returns before anything is
+ * written to the lead, but a contact correction may already have refreshed its
+ * contact: a caller that must leave nothing behind rolls back on a refusal.
+ * The staff `PATCH` and a change request's approval both go through it.
+ */
+export async function applyLeadUpdate(
+  tx: TenantTransaction,
+  context: LeadUpdateContext,
+  input: UpdateLeadWorkInput & { automation?: AutomationAttribution },
+): Promise<UpdateLeadWorkOutcome> {
+  const lead = await lockLead(tx, input.workspaceId, input.leadId);
+  if (!lead) return { status: 'not_found' };
+  if (lead.trashed) return { status: 'trashed' };
+  const { automation } = input;
+  // #89: checked first, before a rescue or an order edit does any work.
+  const expected = input.expectedContact;
+  if (input.contact && expected) {
+    const contactEdit = input.contact;
+    const stale = CONTACT_FIELDS.filter(
+      (field) =>
+        contactEdit[field] !== undefined &&
+        expected[field] !== undefined &&
+        (expected[field] ?? null) !== (lead[field] ?? null),
+    );
+    if (stale.length > 0) return { status: 'contact_conflict', fields: stale };
+  }
+
+  const set: Partial<typeof leads.$inferInsert> = {};
+  const entries: Array<{ kind: string; data: Record<string, unknown> }> = [];
+  const before: Record<string, unknown> = {};
+  const after: Record<string, unknown> = {};
+
+  // The order edit to write: the one given, with the dates a move defaults.
+  let orderEdit = input.order;
+  let checkDocuments = false;
+  // A flow passes the documents gate as staff do, and never by the override.
+  const reason = automation ? undefined : input.documentsOverrideReason?.trim();
+  let override: { reason: string; missing: string[] } | undefined;
+  // A staff move of a checkout the customer never submitted submits it (O9, O12),
+  // unless the move closes it (a lost or cancelled stage: `isClosingStage`).
+  let rescue = false;
+  let base: LockedLead = lead;
+  if (input.stage !== undefined && input.stage !== lead.stage) {
+    if (!isLeadStage(lead.leadType, input.stage)) return { status: 'invalid_stage' };
+    const current = toLeadOrder(lead.orderDetails);
+    const move = planStageMove({
+      leadType: lead.leadType,
+      from: lead.stage,
+      to: input.stage,
+      current,
+      edit: input.order,
+      today: todayInToronto(new Date()),
+    });
+    if (!move.ok) return move.refusal;
+    if (reason === '') return { status: 'document_override_reason_required' };
+    checkDocuments = move.gates.includes('documents');
+    orderEdit = move.order;
+    set.stage = input.stage;
+    entries.push({ kind: 'status_change', data: { from: lead.stage, to: input.stage } });
+    before['stage'] = lead.stage;
+    after['stage'] = input.stage;
+    if (
+      !automation &&
+      lead.status === 'incomplete' &&
+      !isClosingStage(lead.leadType, input.stage)
+    ) {
+      rescue = true;
+      set.status = 'submitted';
+      // The rescue is the submission: tracking dates the order by it (#94).
+      if (await submittedAtReady(tx)) set.submittedAt = new Date();
+      before['status'] = lead.status;
+      after['status'] = 'submitted';
+      entries.push({ kind: 'system', data: { event: 'submitted' } });
+      base = { ...lead, orderDetails: await rescuedOrder(tx, input.workspaceId, lead) };
+    }
+  }
+
+  // The order as this change leaves it, worked out before anything is
+  // written, so the documents check sees the plan the lead will have.
+  const changedOrder: string[] = [];
+  let storedOrder: Record<string, unknown> | undefined;
+  if (orderEdit) {
+    const edit = await editOrder(tx, input.workspaceId, base, orderEdit);
+    if (!edit.ok) return { status: 'invalid_field', field: edit.field };
+    if (edit.changedKeys.length > 0) {
+      storedOrder = edit.stored;
+      changedOrder.push(...edit.changedKeys);
+    }
+  }
+  // The rescue's freeze is the submission's, not an edit: no field is named for it.
+  if (storedOrder === undefined && base.orderDetails !== lead.orderDetails) {
+    storedOrder = storedObject(base.orderDetails);
+  }
+  if (checkDocuments) {
+    // What that frozen plan requires; no plan, or a plan from before the field, requires nothing.
+    const plan = toLeadOrder(storedOrder ?? base.orderDetails).plan;
+    const missing = await findMissingDocuments(tx, {
+      workspaceId: input.workspaceId,
+      leadId: input.leadId,
+      required: plan?.requiredDocuments ?? [],
+    });
+    if (missing.length > 0) {
+      if (reason === undefined) return { status: 'documents_incomplete', missing };
+      override = { reason, missing };
+    }
+  }
+
+  if (input.assignedActorId !== undefined && input.assignedActorId !== lead.assignedActorId) {
+    if (
+      input.assignedActorId !== null &&
+      !(await isActiveMember(tx, input.workspaceId, input.assignedActorId))
+    ) {
+      return { status: 'assignee_not_found' };
+    }
+    set.assignedActorId = input.assignedActorId;
+    entries.push({
+      kind: 'assignment',
+      data: { from: lead.assignedActorId, to: input.assignedActorId },
+    });
+    before['assignedActorId'] = lead.assignedActorId;
+    after['assignedActorId'] = input.assignedActorId;
+  }
+
+  const contact = input.contact;
+  const changed: ContactField[] = contact
+    ? CONTACT_FIELDS.filter(
+        (field) => contact[field] !== undefined && contact[field] !== lead[field],
+      )
+    : [];
+  if (contact && changed.length > 0) {
+    const next = {
+      fullName: contact.fullName ?? lead.fullName,
+      email: contact.email ?? lead.email,
+      phone: contact.phone ?? lead.phone,
+    };
+    if (changed.includes('fullName')) set.fullName = next.fullName;
+    if (changed.includes('email')) set.email = next.email;
+    if (changed.includes('phone')) set.phone = next.phone;
+    // A corrected address moves the lead to that person's contact; a
+    // corrected name or phone refreshes the contact it already has.
+    if (next.email) {
+      set.contactId = await upsertContact(tx, {
+        email: next.email,
+        fullName: next.fullName ?? undefined,
+        phone: next.phone ?? undefined,
+        countryCode: lead.countryCode ?? undefined,
+      });
+    }
+  }
+
+  const changedForm: string[] = [];
+  if (input.form && Object.keys(input.form).length > 0) {
+    const form = storedForm(lead.payload);
+    const edit = applyLeadFormEdit(lead.leadType, form.payload, input.form);
+    if (!edit.ok) return { status: 'invalid_field', field: edit.field };
+    if (edit.changed.length > 0) {
+      set.payload = { schemaVersion: form.schemaVersion, payload: edit.payload };
+      changedForm.push(...edit.changed);
+    }
+  }
+
+  const changedCustom: string[] = [];
+  if (input.customValues && Object.keys(input.customValues).length > 0) {
+    // Only the custom properties this type shows; a hidden or unknown key is refused.
+    const current = isStoredObject(lead.customValues) ? lead.customValues : {};
+    const edit = applyCustomValueEdits({
+      properties: input.catalog.forType(lead.leadType),
+      current,
+      edits: input.customValues,
+    });
+    if (!edit.ok) return { status: 'invalid_field', field: edit.field };
+    if (edit.changedKeys.length > 0) {
+      // Only the changed keys are written; every other stored value stays as it is.
+      const cleared = edit.changedKeys.filter((key) => !Object.hasOwn(edit.values, key));
+      const setValues = Object.fromEntries(
+        edit.changedKeys.flatMap((key) =>
+          Object.hasOwn(edit.values, key) ? [[key, edit.values[key]]] : [],
+        ),
+      );
+      const remaining = cleared.reduce(
+        (expression, key) => sql`(${expression} - ${key}::text)`,
+        sql`${leads.customValues}`,
+      );
+      set.customValues = sql`(${remaining} || ${JSON.stringify(setValues)}::jsonb)`;
+      changedCustom.push(...edit.changedKeys);
+    }
+  }
+
+  if (override) {
+    // Only a move that actually went past missing documents records an override.
+    storedOrder = {
+      ...(storedOrder ?? storedObject(lead.orderDetails)),
+      documentsOverride: { ...override, at: new Date().toISOString() },
+    };
+  }
+  if (storedOrder) {
+    set.orderDetails = storedOrder;
+    before['order'] = auditedOrder(lead.orderDetails);
+    after['order'] = auditedOrder(storedOrder);
+  }
+
+  // One entry for the whole correction, naming the fields (built-in, custom and order) and never their values.
+  const changedFields = [...changed, ...changedForm, ...changedCustom, ...changedOrder];
+  if (changedFields.length > 0) {
+    entries.push({ kind: 'edit', data: { fields: changedFields } });
+    after['changedFields'] = changedFields;
+  }
+  if (override) {
+    entries.push({
+      kind: 'system',
+      data: { event: 'documents_override', missing: override.missing, reason: override.reason },
+    });
+  }
+
+  if (entries.length === 0) {
+    return {
+      status: 'updated',
+      lead: await requireDetail(tx, input.workspaceId, input.leadId, input.catalog),
+      activities: [],
+    };
+  }
+
+  await tx
+    .update(leads)
+    .set({ ...set, updatedAt: new Date() })
+    .where(and(eq(leads.workspaceId, input.workspaceId), eq(leads.id, input.leadId)));
+  const inserted = await tx
+    .insert(leadActivities)
+    .values(
+      entries.map((entry) => ({
+        workspaceId: input.workspaceId,
+        leadId: input.leadId,
+        actorId: input.actorId,
+        kind: entry.kind,
+        data: {
+          ...entry.data,
+          ...entryAutomation(automation),
+          ...(context.aiActionId && !automation ? { viaAi: true } : {}),
+        },
+      })),
+    )
+    .returning(ACTIVITY_RETURNING);
+  await auditLead(tx, input, 'lead.updated', { before, after });
+  if (override) {
+    await auditLead(tx, input, 'lead.documents_overridden', {
+      after: {
+        from: lead.stage,
+        to: input.stage,
+        missing: override.missing,
+        reason: override.reason,
+      },
+    });
+  }
+
+  // The flows of the stage entered, from the lead as just written; each
+  // move is its own occurrence, so moving back and forth mails again. A
+  // rescue is the submission too (its flows first, R4); a flow's move fires
+  // the next flows one deeper in its chain (R8).
+  const statusChange = inserted.find((row) => row.kind === 'status_change');
+  if (statusChange && set.stage !== undefined) {
+    // The clocks of the time triggers this entry (and a rescue's submission) start.
+    const timerInput = {
+      workspaceId: input.workspaceId,
+      leadId: input.leadId,
+      leadType: lead.leadType,
+    };
+    if (rescue) {
+      await writeTimers(tx, {
+        ...timerInput,
+        event: { kind: 'submitted', at: statusChange.createdAt },
+      });
+    }
+    await writeTimers(tx, {
+      ...timerInput,
+      event: {
+        kind: 'stage_entered',
+        stage: set.stage,
+        occurrence: statusChange.id,
+        at: statusChange.createdAt,
+      },
+    });
+  }
+  const chained = {
+    depth: automation ? automation.depth + 1 : 0,
+    chain: automation ? [...automation.chain, automation.key] : [],
+    parentRunId: automation?.runId ?? null,
+  };
+  const fired =
+    statusChange && set.stage !== undefined
+      ? await fireFlows(
+          tx,
+          {
+            workspaceId: input.workspaceId,
+            actorId: input.actorId,
+            requestId: input.requestId,
+            environment: context.emailEnvironment,
+            catalog: input.catalog,
+            ...(context.siteHolder ? { siteHolder: context.siteHolder } : {}),
+            ...(context.afterFlowsRead ? { afterFlowsRead: context.afterFlowsRead } : {}),
+            ...(context.staffNotifications
+              ? { staffNotifications: context.staffNotifications }
+              : {}),
+            ...(context.startedRuns ? { startedRuns: context.startedRuns } : {}),
+            ...(context.queued && !automation ? { queued: context.queued } : {}),
+          },
+          [
+            ...(rescue
+              ? [
+                  {
+                    kind: 'lead_submitted' as const,
+                    leadId: input.leadId,
+                    leadType: lead.leadType,
+                    stage: set.stage,
+                    occurrence: 'submitted',
+                    ...chained,
+                    at: statusChange.createdAt,
+                  },
+                ]
+              : []),
+            {
+              kind: 'stage_entered',
+              leadId: input.leadId,
+              leadType: lead.leadType,
+              stage: set.stage,
+              occurrence: statusChange.id,
+              ...chained,
+              at: statusChange.createdAt,
+            },
+          ],
+        )
+      : { skipped: [], activities: [] };
+  // The response contract caps the list at 200; the move itself is saved either way.
+  const emailSkipped = fired.skipped.slice(0, 200);
+
+  return {
+    status: 'updated',
+    lead: await requireDetail(tx, input.workspaceId, input.leadId, input.catalog),
+    // Every entry the change wrote, the rules' mails among them.
+    activities: newestFirst([...inserted.map(insertedActivity), ...fired.activities]),
+    ...(emailSkipped.length > 0 ? { emailSkipped } : {}),
+  };
+}
+
+/** A task's update time as a version: microseconds since the epoch, exact (numeric). */
+export const TASK_VERSION = sql.raw(`(extract(epoch from k.updated_at) * 1000000)::bigint::text`);
+
+export const isLeadTaskStatus = (value: string): value is LeadTaskStatus =>
+  value === 'open' || value === 'in_progress' || value === 'done' || value === 'cancelled';
+
+interface LockedTask {
+  [key: string]: unknown;
+  status: string;
+  title: string;
+  dueAt: Date | string | null;
+  assignedActorId: string | null;
+  /** Its lead is archived (never true for a plain task). */
+  trashed: boolean;
+  /** Null for a plain task. */
+  leadId: string | null;
+  version: string;
+}
+
+/**
+ * A task, locked for the rest of the transaction: a plain task, or one whose
+ * lead is not restricted (a restricted lead's tasks do not exist here).
+ */
+export async function lockTask(
+  tx: TenantTransaction,
+  workspaceId: string,
+  taskId: string,
+): Promise<LockedTask | undefined> {
+  const [row] = await tx.execute<LockedTask>(sql`
+    select
+      k.lead_id as "leadId",
+      k.status,
+      k.title,
+      k.due_at as "dueAt",
+      k.assigned_actor_id as "assignedActorId",
+      coalesce(l.deleted_at is not null, false) as trashed,
+      ${TASK_VERSION} as version
+    from app.lead_tasks k
+    left join app.leads l on l.workspace_id = k.workspace_id and l.id = k.lead_id
+    where k.workspace_id = ${workspaceId}
+      and k.id = ${taskId}
+      and (k.lead_id is null or l.customer_data_restricted_at is null)
+    for update of k
+  `);
+  return row;
+}
+
+/**
+ * The one change to a task: the staff `PATCH` and Ask AI's confirmed move
+ * both make it. The task is the caller's, locked and not on an archived lead.
+ * It writes the task and a `lead.task_updated` audit (field names and the
+ * status, never the title) and no timeline entry, for a lead's task and a
+ * plain one alike. A lead's active task with a new due day, or reopened with
+ * one, starts its overdue clock; a plain task has none (a flow runs on a lead).
+ */
+export async function applyTaskUpdate(
+  tx: TenantTransaction,
+  input: UpdateTaskInput & { aiActionId?: string },
+  current: LockedTask,
+): Promise<TaskOutcome> {
+  if (
+    input.assignedActorId !== undefined &&
+    input.assignedActorId !== null &&
+    input.assignedActorId !== current.assignedActorId &&
+    !(await isActiveMember(tx, input.workspaceId, input.assignedActorId))
+  ) {
+    return { status: 'assignee_not_found' };
+  }
+
+  const set: Partial<typeof leadTasks.$inferInsert> = {};
+  const changedFields: string[] = [];
+  if (input.title !== undefined && input.title !== current.title) {
+    set.title = input.title;
+    changedFields.push('title');
+  }
+  if (input.dueAt !== undefined) {
+    set.dueAt = input.dueAt === null ? null : new Date(input.dueAt);
+    changedFields.push('dueAt');
+  }
+  if (input.assignedActorId !== undefined && input.assignedActorId !== current.assignedActorId) {
+    set.assignedActorId = input.assignedActorId;
+    changedFields.push('assignedActorId');
+  }
+  if (input.status !== undefined && input.status !== current.status) {
+    set.status = input.status;
+    // The completion check pairs `done` with a completion time; any other
+    // status clears it, so a reopened task is open again in full.
+    set.completedAt = input.status === 'done' ? new Date() : null;
+    changedFields.push('status');
+  }
+  if (changedFields.length === 0) {
+    return { status: 'saved', task: await requireTask(tx, input.workspaceId, input.taskId) };
+  }
+
+  await tx
+    .update(leadTasks)
+    .set({ ...set, updatedAt: new Date() })
+    .where(and(eq(leadTasks.workspaceId, input.workspaceId), eq(leadTasks.id, input.taskId)));
+  await tx.insert(auditEvents).values({
+    workspaceId: input.workspaceId,
+    actorId: input.actorId,
+    actorLabel: 'staff actor',
+    action: 'lead.task_updated',
+    entity: 'lead_task',
+    entityId: input.taskId,
+    requestId: input.requestId,
+    before: { status: current.status },
+    after: {
+      changedFields,
+      status: input.status ?? current.status,
+      ...(input.aiActionId === undefined ? {} : { aiActionId: input.aiActionId }),
+    },
+  });
+  // An active (open or in-progress) task with a new due day, or one
+  // reopened from done or cancelled with a due day, starts its overdue
+  // clock. Moving between open and in progress keeps the clock it has.
+  const status = input.status ?? current.status;
+  const dueAt = input.dueAt !== undefined ? input.dueAt : current.dueAt;
+  const dueMoved =
+    input.dueAt !== undefined &&
+    input.dueAt !== null &&
+    (current.dueAt === null || taskDueDay(input.dueAt) !== taskDueDay(current.dueAt));
+  const reopened =
+    input.status !== undefined &&
+    isActiveTaskStatus(input.status) &&
+    !isActiveTaskStatus(current.status);
+  if (
+    current.leadId !== null &&
+    isActiveTaskStatus(status) &&
+    dueAt !== null &&
+    (dueMoved || reopened)
+  ) {
+    await writeTaskTimers(tx, input.workspaceId, current.leadId, input.taskId, dueAt);
+  }
+  return { status: 'saved', task: await requireTask(tx, input.workspaceId, input.taskId) };
+}
