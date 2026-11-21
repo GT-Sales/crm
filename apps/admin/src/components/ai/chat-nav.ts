@@ -19,13 +19,6 @@ export interface NavEntry {
   readonly icon: LucideIcon;
 }
 
-/** The page list with Ask AI after Mail, when `askAi` says it is available. */
-export function withAskAi(items: readonly NavEntry[], askAi: boolean): readonly NavEntry[] {
-  return items.flatMap((item) =>
-    askAi && item.section === 'mail' ? [item, ASK_AI_NAV_ITEM] : [item],
-  );
-}
-
 /** True when the sidebar and Ctrl/Cmd K may offer the full Ask AI page. */
 export function useAskAiPageAvailable(): boolean {
   return useOptionalAssistant()?.conversations.enabled ?? false;

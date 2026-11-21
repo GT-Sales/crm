@@ -21,6 +21,7 @@ import {
   ChangeRequestService,
   DatabaseChangeRequestStore,
 } from '../src/tracking/change-requests.js';
+import { getDisposableTestDatabaseUrl, TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 /**
  * Issues #82 and #108: every copy of a document's upload is recorded for
@@ -30,22 +31,6 @@ import {
  * a switch that makes its deletes fail.
  */
 
-function getDisposableTestDatabaseUrl(): string | undefined {
-  const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
-  const destructiveTestsEnabled = process.env.DB_TEST_ALLOW_DESTRUCTIVE === '1';
-  if (!migrationUrl && !destructiveTestsEnabled && !process.env.CI) return undefined;
-  if (!migrationUrl || !destructiveTestsEnabled) {
-    throw new Error(
-      'Database integration tests require TEST_MIGRATION_DATABASE_URL and DB_TEST_ALLOW_DESTRUCTIVE=1 together.',
-    );
-  }
-  const databaseName = decodeURIComponent(new URL(migrationUrl).pathname.slice(1));
-  if (!databaseName.endsWith('_test')) {
-    throw new Error('TEST_MIGRATION_DATABASE_URL must name a disposable database ending in _test.');
-  }
-  return migrationUrl;
-}
-
 const migrationUrl = getDisposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
 
@@ -54,7 +39,6 @@ const SITE = '00000000-0000-4000-8000-00000000d801';
 const STAFF = '00000000-0000-4000-8000-00000000d811';
 const CREDENTIAL = '00000000-0000-4000-8000-00000000d812';
 const SCHEDULER = '00000000-0000-4000-8000-00000000d813';
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 const EMAIL = 'objects.d801@example.com';
 const PDF = new TextEncoder().encode('%PDF-1.4 synthetic test document d801');
 const PDF_SHA256 = createHash('sha256').update(PDF).digest('hex');

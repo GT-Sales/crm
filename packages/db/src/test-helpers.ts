@@ -70,3 +70,25 @@ export function assertDisposableDatabaseUrl(connectionString: string): void {
   if (local) return;
   assertDisposableDatabaseName(url.pathname.replace(/^\//, ''));
 }
+
+/**
+ * The migration URL of the disposable database the integration suites run
+ * against, or undefined when none is configured (the suites then skip, except
+ * in CI, where a missing database is an error). The database's name must end
+ * in `_test`.
+ */
+export function getDisposableTestDatabaseUrl(): string | undefined {
+  const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
+  const destructiveTestsEnabled = process.env.DB_TEST_ALLOW_DESTRUCTIVE === '1';
+  if (!migrationUrl && !destructiveTestsEnabled && !process.env.CI) return undefined;
+  if (!migrationUrl || !destructiveTestsEnabled) {
+    throw new Error(
+      'Database integration tests require TEST_MIGRATION_DATABASE_URL and DB_TEST_ALLOW_DESTRUCTIVE=1 together.',
+    );
+  }
+  const databaseName = decodeURIComponent(new URL(migrationUrl).pathname.slice(1));
+  if (!databaseName.endsWith('_test')) {
+    throw new Error('TEST_MIGRATION_DATABASE_URL must name a disposable database ending in _test.');
+  }
+  return migrationUrl;
+}

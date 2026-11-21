@@ -27,11 +27,8 @@ import type { StaffAccessSnapshot } from '../staff/authorization.js';
 import { TurnBudget } from './limits.js';
 import { DISPLAY_NAME_MAX } from './projections.js';
 import { RECORD_DATA_NOTICE, inertRecordText, neutralizeSerialized } from './record-text.js';
-import {
-  aiLeadValueDigest,
-  type AiTaskUpdatePreview,
-  type AiTemplateEmailPreview,
-} from '../leads/work-store.js';
+import { aiLeadValueDigest } from '../leads/work-store.js';
+import { type AiTaskUpdatePreview, type AiTemplateEmailPreview } from '../leads/work-types.js';
 import { archiveEffects, automationOffEffects, type AiLeadEditPreview } from './card-store.js';
 import {
   cardAllowed,
@@ -342,7 +339,7 @@ export function createActionProposalTools(input: {
     leadId: string,
     field: Extract<import('@gt-sales/contracts').AiActionDraft, { kind: 'lead_update' }>['field'],
     options?: { search?: string; limit?: number },
-  ) => Promise<import('../leads/work-store.js').AiLeadUpdatePreview | undefined>;
+  ) => Promise<import('../leads/work-types.js').AiLeadUpdatePreview | undefined>;
   /** The task a move card names, read as the card is prepared; absent, no move is offered. */
   taskUpdatePreview?: (taskId: string) => Promise<AiTaskUpdatePreview | undefined>;
   /** Whether a task may have no lead (migration 0038 applied); false asks for a lead. */
@@ -1159,14 +1156,6 @@ function taskDraftOf(
 ): Extract<AiCardDraft, { kind: 'task' }> {
   const { leadId, ...rest } = raw;
   return { kind: 'task', ...(leadId === null ? {} : { leadId }), ...rest };
-}
-
-/** The task tool's input for a task draft (the revise route re-runs the tool on an edit). */
-export function taskToolInputOf(
-  draft: Extract<AiCardDraft, { kind: 'task' }>,
-): z.infer<typeof taskToolInputSchema> {
-  const { kind: _kind, leadId, ...rest } = draft;
-  return { ...rest, leadId: leadId ?? null };
 }
 
 /**

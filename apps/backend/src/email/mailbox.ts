@@ -3,7 +3,8 @@ import { MAILBOX_PAGE_SIZE, mailboxItemSchema, type MailboxItem } from '@gt-sale
 import { sql } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { MAIL_STATUS, iso, toLeadActivity } from '../leads/staff-queries.js';
+import { iso } from '../leads/staff-queries.js';
+import { MAIL_STATUS, toLeadActivity } from '../leads/lead-work-queries.js';
 import type { Scope } from '../tenant-scope.js';
 
 /**

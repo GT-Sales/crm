@@ -40,7 +40,7 @@ import type {
   LeadWorkStore,
   UpdateLeadWorkInput,
   UpdateLeadWorkOutcome,
-} from '../src/leads/work-store.js';
+} from '../src/leads/work-types.js';
 import type { ChangeRequestService, DecisionOutcome } from '../src/tracking/change-requests.js';
 import type { PropertyStore } from '../src/properties/store.js';
 import type { StaffStore } from '../src/staff/store.js';

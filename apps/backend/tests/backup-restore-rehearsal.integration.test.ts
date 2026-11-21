@@ -7,6 +7,7 @@ import { applyMigrations } from '@gt-sales/db/migrations';
 import { seedDatabase } from '@gt-sales/db/seed';
 import {
   assertDisposableDatabaseUrl,
+  getDisposableTestDatabaseUrl,
   setTestBackupReaderPassword,
   setTestRuntimePassword,
   TEST_BACKUP_READER_PASSWORD,
@@ -46,23 +47,6 @@ import {
  * Only the archive, the encryption and the document store are test doubles.
  */
 
-function getDisposableTestDatabaseUrl(): string | undefined {
-  const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
-  const destructiveTestsEnabled = process.env.DB_TEST_ALLOW_DESTRUCTIVE === '1';
-  if (!migrationUrl && !destructiveTestsEnabled && !process.env.CI) return undefined;
-  if (!migrationUrl || !destructiveTestsEnabled) {
-    throw new Error(
-      'Database integration tests require TEST_MIGRATION_DATABASE_URL and DB_TEST_ALLOW_DESTRUCTIVE=1 together.',
-    );
-  }
-  const databaseName = decodeURIComponent(new URL(migrationUrl).pathname.slice(1));
-  if (!databaseName.endsWith('_test')) {
-    throw new Error('TEST_MIGRATION_DATABASE_URL must name a disposable database ending in _test.');
-  }
-  assertDisposableDatabaseUrl(migrationUrl);
-  return migrationUrl;
-}
-
 /** Every tool reads its connection from PG* variables; the test cluster has no TLS in CI. */
 const toolEnv: NodeJS.ProcessEnv = { ...process.env, PGSSLMODE: 'disable' };
 
@@ -94,6 +78,7 @@ async function skipReason(migrationUrl: string | undefined): Promise<string | un
 }
 
 const migrationUrl = getDisposableTestDatabaseUrl();
+if (migrationUrl) assertDisposableDatabaseUrl(migrationUrl);
 const reason = await skipReason(migrationUrl);
 // In CI a missing or too-old dump client is a broken pipeline, never a skip;
 // only an unconfigured database (which CI rejects above) skips.

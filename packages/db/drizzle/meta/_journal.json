@@ -344,6 +344,13 @@
       "when": 1795294469261,
       "tag": "0048_getcanadasim_mirror_when_eligible",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1795303383597,
+      "tag": "0049_lead_activities_opened_index",
+      "breakpoints": true
     }
   ]
 }

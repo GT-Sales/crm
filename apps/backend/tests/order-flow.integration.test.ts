@@ -36,22 +36,7 @@ import { DatabaseStaffStore } from '../src/staff/store.js';
 import { generateServiceSecret } from '../src/website/credential.js';
 import { DatabaseWebsiteCredentialStore } from '../src/website/store.js';
 import { seedBuiltInFlow } from './support/flows.js';
-
-function getDisposableTestDatabaseUrl(): string | undefined {
-  const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
-  const destructiveTestsEnabled = process.env.DB_TEST_ALLOW_DESTRUCTIVE === '1';
-  if (!migrationUrl && !destructiveTestsEnabled && !process.env.CI) return undefined;
-  if (!migrationUrl || !destructiveTestsEnabled) {
-    throw new Error(
-      'Database integration tests require TEST_MIGRATION_DATABASE_URL and DB_TEST_ALLOW_DESTRUCTIVE=1 together.',
-    );
-  }
-  const databaseName = decodeURIComponent(new URL(migrationUrl).pathname.slice(1));
-  if (!databaseName.endsWith('_test')) {
-    throw new Error('TEST_MIGRATION_DATABASE_URL must name a disposable database ending in _test.');
-  }
-  return migrationUrl;
-}
+import { getDisposableTestDatabaseUrl, TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = getDisposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -67,7 +52,6 @@ const PASSPORT_FILE = '70000000-0000-4000-8000-000000001831';
 /** The scheduler's identity for the outbox run. */
 const OUTBOX_ACTOR = '70000000-0000-4000-8000-000000001841';
 const REQUEST = '70000000-0000-4000-8000-000000001851';
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 const SECRET = 'ci-email-contact-hash-secret-0123456789';
 const IDEMPOTENCY_KEY = 'order-flow-1801-submit';
 const OVERRIDE_REASON = 'Passport checked in person at the counter.';

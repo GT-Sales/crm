@@ -14,12 +14,8 @@ import {
 import { sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 
-import {
-  selectLeadPage,
-  selectLeadSummary,
-  selectLeadWithWork,
-  type LeadWithWork,
-} from '../leads/staff-queries.js';
+import { selectLeadPage, selectLeadSummary } from '../leads/staff-queries.js';
+import { selectLeadWithWork, type LeadWithWork } from '../leads/lead-work-queries.js';
 import { loadPropertyCatalog } from '../properties/catalog.js';
 import type { Scope } from '../tenant-scope.js';
 import {

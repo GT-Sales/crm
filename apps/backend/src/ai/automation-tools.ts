@@ -56,7 +56,6 @@ export const AUTOMATION_READ_TOOL_NAMES = [
   'getAutomationCatalog',
   'getAutomationRuns',
 ] as const;
-export type AutomationReadToolName = (typeof AUTOMATION_READ_TOOL_NAMES)[number];
 
 export const AUTOMATION_TOOL_NAMES = [
   'listAutomations',

@@ -18,25 +18,7 @@ import type { LeadStore } from '../src/leads/store.js';
 import type { StaffStore } from '../src/staff/store.js';
 import { DatabaseSavedViewStore } from '../src/views/store.js';
 import type { WebsiteCredentialStore } from '../src/website/store.js';
-
-function getDisposableTestDatabaseUrl(): string | undefined {
-  const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
-  const destructiveTestsEnabled = process.env.DB_TEST_ALLOW_DESTRUCTIVE === '1';
-
-  if (!migrationUrl && !destructiveTestsEnabled && !process.env.CI) return undefined;
-  if (!migrationUrl || !destructiveTestsEnabled) {
-    throw new Error(
-      'Database integration tests require TEST_MIGRATION_DATABASE_URL and DB_TEST_ALLOW_DESTRUCTIVE=1 together.',
-    );
-  }
-
-  const databaseName = decodeURIComponent(new URL(migrationUrl).pathname.slice(1));
-  if (!databaseName.endsWith('_test')) {
-    throw new Error('TEST_MIGRATION_DATABASE_URL must name a disposable database ending in _test.');
-  }
-
-  return migrationUrl;
-}
+import { getDisposableTestDatabaseUrl, TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = getDisposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -46,7 +28,6 @@ const WORKSPACE = '1a000000-0000-4000-8000-0000000007a1';
 const OTHER_WORKSPACE = '1a000000-0000-4000-8000-0000000007a2';
 const ACTOR = '2a000000-0000-4000-8000-0000000007a1';
 const COLLEAGUE = '2a000000-0000-4000-8000-0000000007a2';
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
 const mine = { workspaceId: WORKSPACE, actorId: ACTOR };
 const colleagues = { workspaceId: WORKSPACE, actorId: COLLEAGUE };

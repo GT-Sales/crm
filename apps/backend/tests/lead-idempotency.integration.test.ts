@@ -17,22 +17,7 @@ import {
   type UpdateLeadInput,
 } from '../src/leads/store.js';
 import { DatabasePlanStore } from '../src/plans/store.js';
-
-function getDisposableTestDatabaseUrl(): string | undefined {
-  const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
-  const destructiveTestsEnabled = process.env.DB_TEST_ALLOW_DESTRUCTIVE === '1';
-  if (!migrationUrl && !destructiveTestsEnabled && !process.env.CI) return undefined;
-  if (!migrationUrl || !destructiveTestsEnabled) {
-    throw new Error(
-      'Database integration tests require TEST_MIGRATION_DATABASE_URL and DB_TEST_ALLOW_DESTRUCTIVE=1 together.',
-    );
-  }
-  const databaseName = decodeURIComponent(new URL(migrationUrl).pathname.slice(1));
-  if (!databaseName.endsWith('_test')) {
-    throw new Error('TEST_MIGRATION_DATABASE_URL must name a disposable database ending in _test.');
-  }
-  return migrationUrl;
-}
+import { getDisposableTestDatabaseUrl, TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = getDisposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -42,7 +27,6 @@ const SITE = '1e000000-0000-4000-8000-000000000611';
 const OTHER_SITE = '1e000000-0000-4000-8000-000000000612';
 const ACTOR = '2e000000-0000-4000-8000-000000000611';
 const REQUEST = '3e000000-0000-4000-8000-000000000611';
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
 const ctx = { workspaceId: SITE, actorId: ACTOR, requestId: REQUEST };
 

@@ -5,22 +5,7 @@ import { applyMigrations } from '@gt-sales/db/migrations';
 import type { CreateCustomProperty } from '@gt-sales/contracts';
 
 import { DatabasePropertyStore, type CreatePropertyOutcome } from '../src/properties/store.js';
-
-function getDisposableTestDatabaseUrl(): string | undefined {
-  const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
-  const destructiveTestsEnabled = process.env.DB_TEST_ALLOW_DESTRUCTIVE === '1';
-  if (!migrationUrl && !destructiveTestsEnabled && !process.env.CI) return undefined;
-  if (!migrationUrl || !destructiveTestsEnabled) {
-    throw new Error(
-      'Database integration tests require TEST_MIGRATION_DATABASE_URL and DB_TEST_ALLOW_DESTRUCTIVE=1 together.',
-    );
-  }
-  const databaseName = decodeURIComponent(new URL(migrationUrl).pathname.slice(1));
-  if (!databaseName.endsWith('_test')) {
-    throw new Error('TEST_MIGRATION_DATABASE_URL must name a disposable database ending in _test.');
-  }
-  return migrationUrl;
-}
+import { getDisposableTestDatabaseUrl, TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = getDisposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -36,7 +21,6 @@ const LEAD_2 = '98000000-0000-4000-8000-000000000002';
 const LEAD_3 = '98000000-0000-4000-8000-000000000003';
 const LEAD_4 = '98000000-0000-4000-8000-000000000004';
 const LEAD_5 = '98000000-0000-4000-8000-000000000005';
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
 const ctx = { workspaceId: SITE, actorId: ACTOR, requestId: REQUEST };
 const otherCtx = { workspaceId: OTHER_SITE, actorId: OTHER_ACTOR };

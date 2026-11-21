@@ -1,4 +1,4 @@
-// Shared ESLint flat-config building blocks for the canadian-plans monorepo.
+// Shared ESLint flat-config building blocks for this monorepo.
 // Consumed by the single root `eslint.config.js` — packages do not each
 // define their own ESLint config.
 import js from '@eslint/js';

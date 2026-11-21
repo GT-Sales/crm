@@ -50,7 +50,7 @@ import {
 } from '../ai/card-safeguards.js';
 import type { AiCardStore } from '../ai/card-store.js';
 import { signAssistantTurn, trustedHistory } from '../ai/history.js';
-import type { LeadWorkStore } from '../leads/work-store.js';
+import type { LeadWorkStore } from '../leads/work-types.js';
 import type { AiTurnStore } from '../ai/turn-store.js';
 import { Router, type Request, type Response } from 'express';
 import {
@@ -558,7 +558,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
   const leadUpdatePreview = async (
     scope: Scope,
     leadId: string,
-    field: import('../leads/work-store.js').AiLeadUpdateDraft['field'],
+    field: import('../leads/work-types.js').AiLeadUpdateDraft['field'],
     options: { search?: string; limit?: number } = {},
   ) => {
     const preview = await dependencies.work?.previewAiLeadUpdate?.({ ...scope, leadId, field });
@@ -1165,7 +1165,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         let outcome:
           | { status: 'queued'; recordId: string }
           | { status: 'not_found' | 'trashed' | 'no_sender' | 'missing' }
-          | { status: 'changed'; reason: import('../leads/work-store.js').AiMailChange };
+          | { status: 'changed'; reason: import('../leads/work-types.js').AiMailChange };
         if (draft.kind === 'email') {
           if (!work.queueAiEmail) {
             sendDomainError(res, req.id, 'ai_unavailable', 503);

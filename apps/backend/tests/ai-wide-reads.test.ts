@@ -28,7 +28,7 @@ import {
   createAssistantTools,
   type ToolContext,
 } from '../src/ai/tools.js';
-import type { LeadWithWork } from '../src/leads/staff-queries.js';
+import type { LeadWithWork } from '../src/leads/lead-work-queries.js';
 import type { ReportStore } from '../src/reports/store.js';
 import type { StaffAccessSnapshot } from '../src/staff/authorization.js';
 import { canSeeLeadDetails, moneyVisibilityOf } from '../src/staff/lead-visibility.js';

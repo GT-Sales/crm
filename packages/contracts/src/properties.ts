@@ -419,7 +419,7 @@ export interface PropertyCatalog {
   get(key: string): SiteProperty | undefined;
   /** Visible (not hidden) properties that apply to the type, in the order the record page shows them. */
   forType(leadType: string): readonly SiteProperty[];
-  /** Visible, non-sensitive properties for filters, sorts and columns (PR #1 semantics across types when no type). */
+  /** Visible, non-sensitive properties for filters, sorts and columns; with no type, every type's, merged by first use. */
   filterable(leadType?: string): readonly FilterableLeadProperty[];
 }
 
@@ -789,7 +789,7 @@ export function buildPropertyCatalog(
   };
 }
 
-/** The catalogue of a site with no rows: PR #1's behaviour plus the order properties, whose `plan` has no options without the site's plans. */
+/** The catalogue of a site with no rows: the built-in form properties plus the order properties, whose `plan` has no options without the site's plans. */
 export const codePropertyCatalog: PropertyCatalog = buildPropertyCatalog([]);
 
 const KEY_MAX_LENGTH = 64;
