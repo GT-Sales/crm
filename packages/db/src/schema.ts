@@ -839,7 +839,7 @@ export const auditEvents = appSchema
  * Document metadata. An upload is staged under a presigned PUT, verified by
  * file signature on finalize, then attached; the object itself lives in the
  * Storage bucket named in `bucket`. `record_type`/`record_id` name the owning
- * record (a lead today; orders in a later phase).
+ * record (a lead: an order is a lead's order details).
  */
 export const files = appSchema
   .table(

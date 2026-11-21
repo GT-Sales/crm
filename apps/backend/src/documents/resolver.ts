@@ -7,17 +7,16 @@ import type { DocumentContextResolver } from './service.js';
 type DocumentDatabase = Pick<import('@gt-sales/db').DatabaseClient, 'withTenantTx'>;
 
 /**
- * Document kinds a lead may attach until the lead-type registry (phase 1)
- * supplies a per-type checklist. Kept deliberately narrow: identity and
- * immigration documents the current intake forms actually collect.
+ * Document kinds a lead may attach, whatever its type. Kept deliberately
+ * narrow: identity and immigration documents the intake forms collect.
  */
 export const DEFAULT_LEAD_DOCUMENT_TYPES: readonly string[] = DEFAULT_DOCUMENT_TYPE_KEYS;
 
 /**
  * Reads the document context from the tenant DB. Everything runs under tenant
  * RLS, so a parent belonging to another workspace simply returns nothing
- * (`found: false`). Only leads carry documents today; orders arrive in phase 3
- * and will resolve through the lead they belong to.
+ * (`found: false`). Only leads carry documents: an order is a lead's order
+ * details, not a record of its own.
  */
 export class DatabaseDocumentContextResolver implements DocumentContextResolver {
   constructor(private readonly database: DocumentDatabase = { withTenantTx }) {}
