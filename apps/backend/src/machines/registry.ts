@@ -305,28 +305,6 @@ export class MachineRegistry {
     };
   }
 
-  /**
-   * Internal read-only lookup for offline/ops tooling that must act as a
-   * scheduler machine identity without replaying a scheduler secret. Returns
-   * the identity only when exactly one non-revoked scheduler entry both
-   * authorizes the workspace and holds `scope`; zero or several matches fail
-   * closed, so a caller can never
-   * pick a synthetic or guessed actor.
-   */
-  schedulerForWorkspace(
-    workspaceId: string,
-    scope: MachineScopeName,
-  ): { selector: string; actorId: string } | undefined {
-    const matches = [...this.schedulers.values()].filter(
-      (entry) =>
-        !entry.revoked && entry.workspaceIds.includes(workspaceId) && entry.scopes.includes(scope),
-    );
-    if (matches.length !== 1) return undefined;
-    const entry = matches[0];
-    if (!entry) return undefined;
-    return { selector: entry.selector, actorId: entry.actorId };
-  }
-
   resolveScheduler(input: ResolveSchedulerInput): SchedulerResolution {
     const entry = this.schedulers.get(input.selector);
     if (!entry || entry.revoked) return { ok: false, reason: 'machine_unknown' };

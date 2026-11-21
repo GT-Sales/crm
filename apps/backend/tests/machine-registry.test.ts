@@ -177,56 +177,6 @@ describe('machine scheduler resolution', () => {
   });
 });
 
-describe('scheduler identity lookup for offline tooling', () => {
-  const reconcileScheduler: MachineRegistryConfig['schedulers'][number] = {
-    selector: 'reconcile-runner',
-    secret: 'reconcile-secret-000000000000001',
-    actorId: SCHEDULER_ACTOR,
-    workspaceIds: [WORKSPACE_A],
-    scopes: ['reconcile:run'],
-    revoked: false,
-  };
-  const reconcileConfig: MachineRegistryConfig = {
-    webhooks: [],
-    schedulers: [reconcileScheduler],
-  };
-
-  it('returns the registry actor for a workspace the identity authorizes with the scope', () => {
-    const local = new MachineRegistry(reconcileConfig);
-    expect(local.schedulerForWorkspace(WORKSPACE_A, 'reconcile:run')).toEqual({
-      selector: 'reconcile-runner',
-      actorId: SCHEDULER_ACTOR,
-    });
-  });
-
-  it('returns undefined without a matching scope or workspace', () => {
-    const local = new MachineRegistry(reconcileConfig);
-    expect(local.schedulerForWorkspace(WORKSPACE_A, 'outbox:run')).toBeUndefined();
-    expect(local.schedulerForWorkspace(WORKSPACE_B, 'reconcile:run')).toBeUndefined();
-  });
-
-  it('ignores revoked identities and fails closed on ambiguity', () => {
-    const revoked = new MachineRegistry({
-      webhooks: [],
-      schedulers: [{ ...reconcileScheduler, revoked: true }],
-    });
-    expect(revoked.schedulerForWorkspace(WORKSPACE_A, 'reconcile:run')).toBeUndefined();
-
-    const ambiguous = new MachineRegistry({
-      webhooks: [],
-      schedulers: [
-        reconcileScheduler,
-        {
-          ...reconcileScheduler,
-          selector: 'reconcile-runner-two',
-          secret: 'reconcile-secret-000000000000002',
-        },
-      ],
-    });
-    expect(ambiguous.schedulerForWorkspace(WORKSPACE_A, 'reconcile:run')).toBeUndefined();
-  });
-});
-
 describe('registry loading', () => {
   it('produces a deny-all registry when no configuration is provided', () => {
     const empty = loadMachineRegistry('');
