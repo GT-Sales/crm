@@ -762,6 +762,65 @@ databaseTest('tracking store and service (challenges and the customer’s orders
       }
     });
 
+    it('tells apart two orders of one email that share a number across lead types', async () => {
+      const email = 'dora.shared@example.com';
+      const older = await insertLead({
+        stage: 'pending',
+        email,
+        externalRef: 'MS-6590',
+        createdAt: days(3),
+      });
+      const newer = await insertLead({
+        leadType: 'internet',
+        stage: 'new',
+        email,
+        externalRef: 'MS-6590',
+        createdAt: days(1),
+      });
+      const alone = await insertLead({
+        stage: 'pending',
+        email,
+        externalRef: 'MS-6591',
+        createdAt: days(2),
+      });
+      try {
+        const grant = {
+          workspaceId: SITE,
+          normalizedEmail: email,
+          emailHash: emailBindingHash(SECRET, SITE, email),
+        };
+        const orders = await service.listOrders(scope, grant);
+        // The shared number is handed out with its lead type; a unique one is not.
+        expect(orders.map((order) => order.reference).sort()).toEqual([
+          'MS-6591',
+          'internet:MS-6590',
+          'sim_order:MS-6590',
+        ]);
+        expect(await service.resolveLead(scope, grant, 'sim_order:MS-6590')).toMatchObject({
+          leadId: older,
+          leadType: 'sim_order',
+        });
+        expect(await service.resolveLead(scope, grant, 'internet:MS-6590')).toMatchObject({
+          leadId: newer,
+          leadType: 'internet',
+        });
+        // A lead type the customer has no such order in, or another email's, finds nothing.
+        expect(await service.resolveLead(scope, grant, 'mobility:MS-6590')).toBeUndefined();
+        expect(
+          await service.resolveLead(
+            scope,
+            { ...grant, normalizedEmail: 'omar@example.com' },
+            'sim_order:MS-6590',
+          ),
+        ).toBeUndefined();
+        // Unique numbers resolve as they always did, and a bare shared number takes the newest.
+        expect(await service.resolveLead(scope, grant, 'MS-6591')).toMatchObject({ leadId: alone });
+        expect(await service.resolveLead(scope, grant, 'MS-6590')).toMatchObject({ leadId: newer });
+      } finally {
+        await admin`delete from app.leads where id in (${older}, ${newer}, ${alone})`;
+      }
+    });
+
     it('resolves a reference only together with its email', async () => {
       expect(await service.resolveLead(scope, identity(), 'MS-6501')).toEqual({
         leadId: leadIds['pending'],

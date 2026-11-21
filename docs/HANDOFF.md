@@ -513,7 +513,9 @@ feature_not_ready`). The customer types an email; the website calls
     normalized email only (`trim().toLowerCase()`). **What is listed**: the
     email's submitted `sim_order`, `internet` and `mobility` leads on this
     site, not archived or restricted, newest first, at most 50: the
-    reference (`MS-<n>`, or the lead id), the stage in the customer's words
+    reference (`MS-<n>`, or the lead id; `<lead type>:MS-<n>` for the orders of
+    one email that share a number across lead types, which picks that order),
+    the stage in the customer's words
     ("Received", "Confirmed", "Waiting on you", "On its way", "Active",
     "Completed", "Cancelled" for a SIM order), the frozen plan (with no
     frozen plan, as on an imported order: `plan` null and the website's own
