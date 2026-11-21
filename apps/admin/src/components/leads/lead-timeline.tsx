@@ -1,12 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { useId, useState, type FormEvent, type ReactNode } from 'react';
+import { Fragment, useId, useState, type FormEvent, type ReactNode } from 'react';
 import {
+  codePropertyCatalog,
+  DRAFT_SAVE_VALUE_MAX,
   emailTemplateLabel,
   LEGACY_IMPORT_ACTOR_ID,
   leadStageLabel,
   type AssignableMember,
+  type DraftSaveValue,
   type LeadActivity,
   type LeadDetail,
   type PropertyCatalog,
@@ -46,6 +49,84 @@ import { fieldLabel } from './lead-fields';
 import { listText } from './stage-move-dialog';
 
 const CONTACT_LABELS: Record<string, string> = { fullName: 'name', email: 'email', phone: 'phone' };
+
+/** The keys a customer's draft save names that are not form fields: the contact and the order. */
+const DRAFT_KEY_LABELS: Record<string, string> = {
+  ...CONTACT_LABELS,
+  countryCode: 'country',
+  plan: 'plan',
+  quantity: 'quantity',
+};
+
+function draftFieldLabel(key: string, leadType: string, catalog?: PropertyCatalog): string {
+  return DRAFT_KEY_LABELS[key] ?? fieldLabel(leadType, key, catalog);
+}
+
+/**
+ * A value a customer entered, as the record shows it: a choice by its
+ * option's label, anything else as it was kept. A cut value is never matched
+ * to an option.
+ */
+function draftValueText(
+  entry: DraftSaveValue,
+  leadType: string,
+  catalog: PropertyCatalog = codePropertyCatalog,
+): string {
+  if (entry.cut) return `${entry.value}…`;
+  const property = catalog.forType(leadType).find((candidate) => candidate.key === entry.key);
+  const option =
+    property?.kind === 'choice'
+      ? property.options?.find((candidate) => candidate.value === entry.value)
+      : undefined;
+  return option?.label ?? entry.value;
+}
+
+/**
+ * What the customer entered in a draft save (issue #87): each changed field
+ * with its new value. Long and many-line values wrap inside the entry.
+ */
+function DraftSaveValues({
+  values,
+  leadType,
+  catalog,
+}: {
+  values: readonly DraftSaveValue[];
+  leadType: string;
+  catalog?: PropertyCatalog;
+}) {
+  return (
+    <dl
+      role="group"
+      aria-label="What the customer entered"
+      className="mt-2 grid grid-cols-[minmax(0,10rem)_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-md border bg-card px-3 py-2"
+    >
+      {values.map((entry) => {
+        const label = draftFieldLabel(entry.key, leadType, catalog);
+        return (
+          <Fragment key={entry.key}>
+            <dt className="text-muted-foreground">
+              {label.charAt(0).toUpperCase() + label.slice(1)}
+            </dt>
+            {entry.value === '' ? (
+              <dd className="text-muted-foreground italic">Cleared</dd>
+            ) : (
+              <dd
+                className="max-h-40 overflow-y-auto break-words whitespace-pre-wrap"
+                title={
+                  entry.cut
+                    ? `Cut short: only the first ${DRAFT_SAVE_VALUE_MAX} characters are kept.`
+                    : undefined
+                }
+              >
+                {draftValueText(entry, leadType, catalog)}
+              </dd>
+            )}
+          </Fragment>
+        );
+      })}
+    </dl>
+  );
+}
 
 /** A change request names the order's plan by `planId`; staff read it as "plan". */
 const REQUEST_KEY_LABELS: Record<string, string> = { ...CONTACT_LABELS, planId: 'plan' };
@@ -213,6 +294,20 @@ function describeEntry(
               <strong>{leadStageLabel(leadType, 'pending')}</strong>
             </>
           ),
+        };
+      }
+      if (activity.event === 'draft_saved') {
+        // The website's credential saved it for the customer, so no name is shown.
+        const fields = (activity.fields ?? []).map((field) =>
+          draftFieldLabel(field, leadType, catalog),
+        );
+        return {
+          icon: <FilePenLineIcon />,
+          actor: null,
+          text:
+            fields.length > 0
+              ? `The customer changed the ${listText(fields)} on their unfinished checkout`
+              : 'The customer changed their unfinished checkout',
         };
       }
       if (activity.event === 'change_requested') {
@@ -499,6 +594,12 @@ export function LeadTimeline({
             </p>
           ) : null}
           {body ? <p className="mt-1 text-muted-foreground">{body}</p> : null}
+          {activity.kind === 'system' &&
+          activity.event === 'draft_saved' &&
+          activity.values &&
+          activity.values.length > 0 ? (
+            <DraftSaveValues values={activity.values} leadType={lead.leadType} catalog={catalog} />
+          ) : null}
         </div>
       </li>
     );

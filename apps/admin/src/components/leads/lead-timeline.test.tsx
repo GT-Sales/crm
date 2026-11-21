@@ -257,6 +257,78 @@ describe('LeadTimeline', () => {
     expect(first?.textContent).not.toContain('Former teammate');
   });
 
+  // Issue #87: the customer's own changes to an unfinished checkout, with what they filled in.
+  describe('a customer’s draft save', () => {
+    const WEBSITE = '30000000-0000-4000-8000-0000000000aa';
+    const saved = (rest: Record<string, unknown>) =>
+      leadActivitySchema.parse(entry('40', { actorId: WEBSITE, event: 'draft_saved', ...rest }));
+
+    it('says the customer changed the fields, with no staff name, and lists each new value', () => {
+      const region = timeline([
+        saved({
+          fields: ['phone', 'delivery', 'shippingAddress', 'flightBooked', 'plan'],
+          values: [
+            { key: 'phone', value: '+1 403 555 0100' },
+            { key: 'delivery', value: 'pickup' },
+            { key: 'shippingAddress', value: '22 Second Avenue\nCalgary AB' },
+            { key: 'flightBooked', value: 'Yes' },
+            { key: 'plan', value: 'Rogers 60GB' },
+          ],
+        }),
+      ]);
+      const [first] = within(region).getAllByRole('listitem');
+      if (!first) throw new Error('expected an entry');
+      expect(first.textContent).toContain(
+        'The customer changed the phone, SIM type, shipping address, flight booked and plan on their unfinished checkout',
+      );
+      expect(first.textContent).not.toContain('Former teammate');
+      const values = within(first).getByRole('group', { name: 'What the customer entered' });
+      const rows = within(values)
+        .getAllByRole('term')
+        .map((term) => [term.textContent, term.nextElementSibling?.textContent]);
+      expect(rows).toEqual([
+        ['Phone', '+1 403 555 0100'],
+        // A choice reads by its label, as the record shows it.
+        ['SIM type', 'Physical SIM (mailed)'],
+        ['Shipping address', '22 Second Avenue\nCalgary AB'],
+        ['Flight booked', 'Yes'],
+        ['Plan', 'Rogers 60GB'],
+      ]);
+      // A long or many-line value wraps inside the entry rather than widening the page.
+      const address = within(values).getByText(/22 Second Avenue/);
+      expect(address.className).toContain('whitespace-pre-wrap');
+      expect(address.className).toContain('break-words');
+    });
+
+    it('marks a value that was cut short and one the customer cleared', () => {
+      const region = timeline([
+        saved({
+          fields: ['canadaAddress', 'reference'],
+          values: [
+            { key: 'canadaAddress', value: 'x'.repeat(300), cut: true },
+            { key: 'reference', value: '' },
+          ],
+        }),
+      ]);
+      const values = within(region).getByRole('group', { name: 'What the customer entered' });
+      const [long, cleared] = within(values).getAllByRole('definition');
+      expect(long?.textContent).toBe(`${'x'.repeat(300)}…`);
+      expect(long?.getAttribute('title')).toBe(
+        'Cut short: only the first 300 characters are kept.',
+      );
+      expect(cleared?.textContent).toBe('Cleared');
+    });
+
+    it('names the fields alone when no value is kept (a sensitive field, or erased data)', () => {
+      const region = timeline([saved({ fields: ['dateOfBirth', 'email'] })]);
+      const [first] = within(region).getAllByRole('listitem');
+      expect(first?.textContent).toContain(
+        'The customer changed the date of birth and email on their unfinished checkout',
+      );
+      expect(within(region).queryByRole('group', { name: 'What the customer entered' })).toBeNull();
+    });
+  });
+
   it('names the document a review approved or rejected', () => {
     const region = timeline([
       {

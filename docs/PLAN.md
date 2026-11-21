@@ -66,7 +66,14 @@ The owner's answers when this repository became the one product
 15. Partners later: the partner code stays on leads; no partner screens or
     payouts yet.
 16. Every change is on the lead's timeline (who, when, which field), customer
-    actions too.
+    actions too. A customer's own save of an unfinished form shows the
+    changed fields **with the values they filled in** (owner decision, 21 Nov
+    2026, issue #87, chosen over field names only): one entry per save that
+    really changed something, by the website's key. The values follow the
+    rules for customer text on the timeline (§3 rule 9, AGENTS.md rules 4 and
+    7): kept where a customer's erasure nulls them, shown only with a lead's
+    details, never in a log or an audit event, and never for a sensitive
+    field. Staff edits still name fields only.
 17. Customer tracking follows Get Canada Sim's flow: email → one-time code →
     orders → change requests that staff approve.
 18. No admin feature deletes customer data: requests come through the

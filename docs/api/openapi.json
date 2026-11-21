@@ -7085,6 +7085,7 @@
                                   "restored",
                                   "opened",
                                   "submitted",
+                                  "draft_saved",
                                   "customer_emailed",
                                   "customer_replied",
                                   "change_requested",
@@ -7164,6 +7165,23 @@
                                 "items": {
                                   "type": "string",
                                   "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                }
+                              },
+                              "values": {
+                                "maxItems": 50,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "key": {
+                                      "type": "string",
+                                      "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                    },
+                                    "value": { "type": "string", "maxLength": 300 },
+                                    "cut": { "type": "boolean", "const": true }
+                                  },
+                                  "required": ["key", "value"],
+                                  "additionalProperties": false
                                 }
                               },
                               "documents": {
@@ -8517,6 +8535,7 @@
                                   "restored",
                                   "opened",
                                   "submitted",
+                                  "draft_saved",
                                   "customer_emailed",
                                   "customer_replied",
                                   "change_requested",
@@ -8596,6 +8615,23 @@
                                 "items": {
                                   "type": "string",
                                   "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                }
+                              },
+                              "values": {
+                                "maxItems": 50,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "key": {
+                                      "type": "string",
+                                      "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                    },
+                                    "value": { "type": "string", "maxLength": 300 },
+                                    "cut": { "type": "boolean", "const": true }
+                                  },
+                                  "required": ["key", "value"],
+                                  "additionalProperties": false
                                 }
                               },
                               "documents": {
@@ -9778,6 +9814,7 @@
                                   "restored",
                                   "opened",
                                   "submitted",
+                                  "draft_saved",
                                   "customer_emailed",
                                   "customer_replied",
                                   "change_requested",
@@ -9857,6 +9894,23 @@
                                 "items": {
                                   "type": "string",
                                   "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                }
+                              },
+                              "values": {
+                                "maxItems": 50,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "key": {
+                                      "type": "string",
+                                      "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                    },
+                                    "value": { "type": "string", "maxLength": 300 },
+                                    "cut": { "type": "boolean", "const": true }
+                                  },
+                                  "required": ["key", "value"],
+                                  "additionalProperties": false
                                 }
                               },
                               "documents": {
@@ -10872,6 +10926,7 @@
                                   "restored",
                                   "opened",
                                   "submitted",
+                                  "draft_saved",
                                   "customer_emailed",
                                   "customer_replied",
                                   "change_requested",
@@ -10951,6 +11006,23 @@
                                 "items": {
                                   "type": "string",
                                   "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                }
+                              },
+                              "values": {
+                                "maxItems": 50,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "key": {
+                                      "type": "string",
+                                      "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                    },
+                                    "value": { "type": "string", "maxLength": 300 },
+                                    "cut": { "type": "boolean", "const": true }
+                                  },
+                                  "required": ["key", "value"],
+                                  "additionalProperties": false
                                 }
                               },
                               "documents": {
@@ -11960,6 +12032,7 @@
                                     "restored",
                                     "opened",
                                     "submitted",
+                                    "draft_saved",
                                     "customer_emailed",
                                     "customer_replied",
                                     "change_requested",
@@ -12043,6 +12116,23 @@
                                   "items": {
                                     "type": "string",
                                     "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                  }
+                                },
+                                "values": {
+                                  "maxItems": 50,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "key": {
+                                        "type": "string",
+                                        "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                      },
+                                      "value": { "type": "string", "maxLength": 300 },
+                                      "cut": { "type": "boolean", "const": true }
+                                    },
+                                    "required": ["key", "value"],
+                                    "additionalProperties": false
                                   }
                                 },
                                 "documents": {
@@ -12992,6 +13082,7 @@
                                     "restored",
                                     "opened",
                                     "submitted",
+                                    "draft_saved",
                                     "customer_emailed",
                                     "customer_replied",
                                     "change_requested",
@@ -13075,6 +13166,23 @@
                                   "items": {
                                     "type": "string",
                                     "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                  }
+                                },
+                                "values": {
+                                  "maxItems": 50,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "key": {
+                                        "type": "string",
+                                        "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                      },
+                                      "value": { "type": "string", "maxLength": 300 },
+                                      "cut": { "type": "boolean", "const": true }
+                                    },
+                                    "required": ["key", "value"],
+                                    "additionalProperties": false
                                   }
                                 },
                                 "documents": {
@@ -13836,6 +13944,7 @@
                                     "restored",
                                     "opened",
                                     "submitted",
+                                    "draft_saved",
                                     "customer_emailed",
                                     "customer_replied",
                                     "change_requested",
@@ -13919,6 +14028,23 @@
                                   "items": {
                                     "type": "string",
                                     "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                  }
+                                },
+                                "values": {
+                                  "maxItems": 50,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "key": {
+                                        "type": "string",
+                                        "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                      },
+                                      "value": { "type": "string", "maxLength": 300 },
+                                      "cut": { "type": "boolean", "const": true }
+                                    },
+                                    "required": ["key", "value"],
+                                    "additionalProperties": false
                                   }
                                 },
                                 "documents": {
@@ -14868,6 +14994,7 @@
                                     "restored",
                                     "opened",
                                     "submitted",
+                                    "draft_saved",
                                     "customer_emailed",
                                     "customer_replied",
                                     "change_requested",
@@ -14951,6 +15078,23 @@
                                   "items": {
                                     "type": "string",
                                     "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                  }
+                                },
+                                "values": {
+                                  "maxItems": 50,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "key": {
+                                        "type": "string",
+                                        "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                      },
+                                      "value": { "type": "string", "maxLength": 300 },
+                                      "cut": { "type": "boolean", "const": true }
+                                    },
+                                    "required": ["key", "value"],
+                                    "additionalProperties": false
                                   }
                                 },
                                 "documents": {
@@ -15482,6 +15626,7 @@
                                 "restored",
                                 "opened",
                                 "submitted",
+                                "draft_saved",
                                 "customer_emailed",
                                 "customer_replied",
                                 "change_requested",
@@ -15559,6 +15704,23 @@
                               "maxItems": 50,
                               "type": "array",
                               "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9_]{0,63}$" }
+                            },
+                            "values": {
+                              "maxItems": 50,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                  },
+                                  "value": { "type": "string", "maxLength": 300 },
+                                  "cut": { "type": "boolean", "const": true }
+                                },
+                                "required": ["key", "value"],
+                                "additionalProperties": false
+                              }
                             },
                             "documents": {
                               "maxItems": 10,
@@ -16112,6 +16274,7 @@
                                 "restored",
                                 "opened",
                                 "submitted",
+                                "draft_saved",
                                 "customer_emailed",
                                 "customer_replied",
                                 "change_requested",
@@ -16189,6 +16352,23 @@
                               "maxItems": 50,
                               "type": "array",
                               "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9_]{0,63}$" }
+                            },
+                            "values": {
+                              "maxItems": 50,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                  },
+                                  "value": { "type": "string", "maxLength": 300 },
+                                  "cut": { "type": "boolean", "const": true }
+                                },
+                                "required": ["key", "value"],
+                                "additionalProperties": false
+                              }
                             },
                             "documents": {
                               "maxItems": 10,
