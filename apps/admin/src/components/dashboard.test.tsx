@@ -353,6 +353,9 @@ describe('Dashboard analytics', () => {
     render(<Dashboard workspaceSlug="getcanadasim" />);
     await screen.findByRole('heading', { name: 'New orders' });
     fireEvent.click(screen.getByRole('button', { name: /choose a custom range/ }));
+    // Each month is a labelled group of day buttons, not an ARIA grid.
+    expect(screen.queryByRole('grid')).toBeNull();
+    expect(screen.getAllByRole('group', { name: /^[A-Za-z]+ \d{4}$/ }).length).toBeGreaterThan(0);
     fireEvent.change(await screen.findByLabelText('From'), { target: { value: '2026-09-01' } });
     fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-08-01' } });
     expect(screen.getByRole('button', { name: 'Apply range' })).toHaveProperty('disabled', true);
