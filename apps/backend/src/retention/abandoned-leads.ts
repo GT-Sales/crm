@@ -174,9 +174,21 @@ export class DatabaseAbandonedLeadPruner {
             sql`select to_regprocedure('app.erase_restricted_lead_data(uuid,uuid[],uuid[])') is not null as present`,
           );
           if (fn?.present) {
-            await tx.execute(
-              sql`select * from app.erase_restricted_lead_data(${input.workspaceId}::uuid, ${uuidArray(eraseIds)}, ${uuidArray(eraseContacts)})`,
+            // The function takes at most 1000 leads and 1000 contacts a call
+            // (`too_many_ids`), and a run can hold a full batch of newly due
+            // drafts plus older restricted leads: one call per slice of both
+            // lists. The contacts' leads were unlinked above, so a contact is
+            // decided on its own, whichever call carries it.
+            const calls = Math.ceil(
+              Math.max(eraseIds.length, eraseContacts.length) / RESTRICTED_ERASURE_BATCH,
             );
+            for (let call = 0; call < calls; call += 1) {
+              const from = call * RESTRICTED_ERASURE_BATCH;
+              const to = from + RESTRICTED_ERASURE_BATCH;
+              await tx.execute(
+                sql`select * from app.erase_restricted_lead_data(${input.workspaceId}::uuid, ${uuidArray(eraseIds.slice(from, to))}, ${uuidArray(eraseContacts.slice(from, to))})`,
+              );
+            }
           } else {
             console.warn(
               JSON.stringify({
@@ -272,6 +284,9 @@ async function eraseAiChatTurns(
     );
   }
 }
+
+/** The 0030 function takes at most this many leads, and this many contacts, per call. */
+const RESTRICTED_ERASURE_BATCH = 1000;
 
 /** The 0039 function takes at most this many leads per call. */
 const AI_CHAT_ERASURE_BATCH = 1000;
