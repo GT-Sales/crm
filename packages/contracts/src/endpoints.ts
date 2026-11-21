@@ -35,6 +35,7 @@ import {
 import {
   createEmailTemplateRequestSchema,
   siteEmailTemplateResponseSchema,
+  emailDeliveryResponseSchema,
   emailSettingsResponseSchema,
   listEmailTemplatesQuerySchema,
   listSiteEmailTemplatesResponseSchema,
@@ -694,6 +695,18 @@ export const endpoints: readonly EndpointDef[] = [
     response: propertyLayoutResponseSchema,
   },
   {
+    operationId: 'savePlanPropertyLayout',
+    method: 'PATCH',
+    path: '/api/v1/staff/workspaces/{workspaceId}/properties/layouts',
+    summary:
+      'Save the plan record layout: the same as `savePropertyLayout` with `object=plan`, with no lead type in the path (property management).',
+    auth: 'staff',
+    successStatus: 200,
+    query: propertyObjectQuerySchema,
+    request: savePropertyLayoutRequestSchema,
+    response: propertyLayoutResponseSchema,
+  },
+  {
     operationId: 'listSavedViews',
     method: 'GET',
     path: '/api/v1/staff/workspaces/{workspaceId}/views',
@@ -785,6 +798,16 @@ export const endpoints: readonly EndpointDef[] = [
     successStatus: 200,
     request: updateEmailSettingsRequestSchema,
     response: emailSettingsResponseSchema,
+  },
+  {
+    operationId: 'getEmailDelivery',
+    method: 'GET',
+    path: '/api/v1/email/staff/workspaces/{workspaceId}/delivery',
+    summary:
+      "The site's newest 200 customer mails with how each went, and the delivery counters (queued, sent, delivered, failed, uncertain), for roles that may see mail delivery.",
+    auth: 'staff',
+    successStatus: 200,
+    response: emailDeliveryResponseSchema,
   },
   {
     operationId: 'listEmailTemplates',
