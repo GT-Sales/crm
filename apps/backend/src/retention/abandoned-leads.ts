@@ -417,6 +417,7 @@ async function eraseLeadAttachments(
       stagingKey: files.stagingKey,
       candidateKey: files.candidateKey,
       objectKey: files.objectKey,
+      expiresAt: files.expiresAt,
     })
     .from(files)
     .where(

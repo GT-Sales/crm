@@ -336,6 +336,7 @@ export class DatabaseChangeRequestStore implements ChangeRequestStore {
               stagingKey: files.stagingKey,
               candidateKey: files.candidateKey,
               objectKey: files.objectKey,
+              expiresAt: files.expiresAt,
             });
           // Already gone (staff removed it): nothing to delete, nothing to audit.
           if (!gone) continue;
@@ -432,6 +433,7 @@ export class DatabaseChangeRequestStore implements ChangeRequestStore {
           stagingKey: files.stagingKey,
           candidateKey: files.candidateKey,
           objectKey: files.objectKey,
+          expiresAt: files.expiresAt,
         });
       if (!gone) return [];
       await enqueueDeletedFile(tx, input.workspaceId, gone);

@@ -1787,8 +1787,12 @@ tracker row (hash, `created_at`): `0046_lead_submitted_at`
 EXCLUSIVE lock); the `UPDATE` writes each submitted lead once in one
 statement, a few thousand rows today, under a second, holding those rows'
 locks until it commits (a website save or staff edit of one waits). It is
-idempotent: run again, it changes nothing. The deploy and the migration may
-go in either order.
+idempotent: run again, it changes nothing. **Apply it before the deploy.**
+The backend's insert of a new lead names every column of `app.leads`,
+`submitted_at` included, so without the column every website lead creation
+fails with a 500; the probe only covers the reads and the stamp. A lead an
+older backend submits between the migration and the deploy has no stamp, so
+run the `UPDATE` once more after the deploy.
 
 - **Before it is applied** (with this backend): nothing is stamped and
   tracking dates by `created_at`, as before; the backend's probe asks again

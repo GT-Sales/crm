@@ -3,9 +3,11 @@ import type { TenantTransaction } from '@gt-sales/db';
 
 /**
  * Whether the database has `app.leads.submitted_at` (migration 0046, issue
- * #94). Migrations are applied by hand after the deploy
- * (docs/RUNBOOKS/database.md), so until then a submission stamps nothing and
- * order tracking dates every order by its creation, as before. Like
+ * #94). The migration must be applied before the deploy, because creating a
+ * lead inserts every column (docs/RUNBOOKS/database.md); this probe keeps the
+ * reads and the stamp working against a database that lacks the column, as
+ * the tests' older schemas do: a submission then stamps nothing and order
+ * tracking dates every order by its creation. Like
  * `task-schema.ts` it asks the catalogue and caches the answer: present stays
  * present (migrations are never rolled back), absent is asked again after
  * five minutes.
