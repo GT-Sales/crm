@@ -58,7 +58,7 @@ A site's mail to its customers comes only from its saved Settings → Email
 (sender name and address, reply-to, look and site address). A site that has
 not saved them sends its customers no email at all: every customer mail,
 including the tracking code and the change decisions, is skipped as
-`no_sender` (phase 5 removed the `EMAIL_SENDERS_JSON` fallback). The sender's
+`no_sender`. The sender's
 domain must be verified in the Resend account of `RESEND_API_KEY`: nothing
 checks the domain when the settings are saved, so a mail from an unverified
 domain fails when it is sent (see the site's jobs). A saved sender is used
@@ -67,15 +67,10 @@ with `RESEND_API_KEY` for `resend`, and `EMAIL_CONTACT_HASH_SECRET` at least
 16 characters; otherwise the admin reports "no sender" for every site, which
 is a deployment problem, not something Settings → Email can fix.
 
-`EMAIL_SENDERS_JSON` is gone: this backend never reads it. A site that
-relies on it stops sending customer mail **the moment this backend is
-deployed**, not when the variable is removed, so check that every sending
-site has saved Settings → Email **before** that deploy (docs/HANDOFF.md §5.1,
-the Senders check). On 2026-10-30 production had no saved settings
-for either site and had sent no customer mail in 30 days. Delete the
-variable from Railway after the deploy; nothing reads it any more.
+`EMAIL_SENDERS_JSON` is no longer read; delete it from Railway if it is still
+there.
 
-Resend delivery events arrive at `POST /api/v1/email/events/:selector`; the
+Resend delivery events arrive at `POST /api/v1/webhooks/resend/:selector`; the
 selector and its signing secret live in `MACHINE_REGISTRY_JSON.webhooks`. A
 site can send before its webhook exists: its mail is then recorded against
 `RESEND_ACCOUNT_ID` without bounce and complaint events, which a webhook adds
@@ -98,11 +93,11 @@ own `ai-attachments/` prefix.
 | `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | Secret. The S3 access key pair.                           |
 | `R2_BUCKET`                                 | `documents` (private bucket, already exists).             |
 
-### Customer tracking (merge phase 5, step B)
+### Customer tracking
 
 Customers follow and change their orders through the website (Get Canada
 Sim's `/track`), which calls `/api/v1/website/tracking/*` with a site key
-that has the `tracking` scope (docs/HANDOFF.md §2.6).
+that has the `tracking` scope (docs/ARCHITECTURE.md §6.6).
 
 | Variable                                                 | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -133,8 +128,8 @@ the browser, and the key must never be a `NEXT_PUBLIC_*` variable.
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `AI_ASSISTANT_ENABLED`       | `true` (exactly) switches the feature on for the sites allowed below. Any other value, or unset, keeps it off.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `AI_GATEWAY_API_KEY`         | Secret. The Vercel AI Gateway key the backend uses for the model request. Required when enabled; unset means `not_configured`. Use a dedicated key so it can be revoked and budgeted on its own.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `AI_ACTION_SIGNING_SECRET`   | Secret, 32+ random characters (for example `openssl rand -base64 48`). Signs AI confirmation cards and automation proposals, separate from the provider key. Unset: the Gateway key is used and the startup log says `ai_signing_secret_missing`. Set but shorter than 32 (after trimming): Ask AI is switched off with reason `not_configured`, as for a missing key, and the startup log says `ai_signing_secret_invalid`; without a key no answer could be checked, so the browser's history would be taken on trust (audit B6).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `AI_GATEWAY_MODEL`           | The exact Gateway model id (for example a `vendor/model` string), required when enabled. Must support streaming and tool calls. There is no default and no fallback model, so an unset or wrong value fails closed with `not_configured` (or a provider error) rather than silently picking another model. It stays required once a site chooses its own models (Settings → AI models, below): it is the default of every site that has saved none, and of every site until migration 0040 is applied.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `AI_ACTION_SIGNING_SECRET`   | Secret, 32+ random characters (for example `openssl rand -base64 48`). Signs AI confirmation cards and automation proposals, separate from the provider key. Unset: the Gateway key is used and the startup log says `ai_signing_secret_missing`. Set but shorter than 32 (after trimming): Ask AI is switched off with reason `not_configured`, as for a missing key, and the startup log says `ai_signing_secret_invalid`; without a key no answer could be checked, so the browser's history would be taken on trust.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `AI_GATEWAY_MODEL`           | The exact Gateway model id (for example a `vendor/model` string), required when enabled. Must support streaming and tool calls. There is no default and no fallback model, so an unset or wrong value fails closed with `not_configured` (or a provider error) rather than silently picking another model. It stays required once a site chooses its own models (Settings → AI models, below): it is the default of every site that has saved none.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `AI_GATEWAY_PROVIDERS`       | Optional. Comma-separated Gateway host slugs allowed to serve every Ask AI model, in preference order (for example `baseten,azure`): `AI_GATEWAY_MODEL`, `AI_GATEWAY_MODEL_HIGH` and every model a site allows in Settings → AI models. Set, the Gateway uses only these hosts (`only` + `order`), so an open-weights model is never served by an unvetted host; malformed entries are dropped, at most 8 kept. A model that none of the listed hosts serves fails its turns (a provider error), so Settings → AI models shows the list beside the models. Unset lets the Gateway choose. Check the hosts' data-retention flags in the Gateway catalogue before listing them.                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `AI_ASSISTANT_WORKSPACE_IDS` | Comma-separated site ids allowed to use the assistant. Empty or unset means no site is enabled. Entries that are not uuids are ignored (a typo enables nothing). Only list a site after the operator has reviewed provider data handling; start with a synthetic/staging site.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `AI_ATTACHMENT_KINDS`        | Optional. The kinds of file a member may attach to a message of a saved conversation, a comma list of `image` (PNG, JPEG, WebP), `pdf` and `text` (plain, CSV, Markdown); case and order do not matter and unknown entries are ignored. Unset, empty or all unknown: uploads are off and the composer offers none. It also needs Ask AI on for the site, the saved chat's migrations (0034, 0035) and the documents storage (`R2_*`). List only what the model in `AI_GATEWAY_MODEL` accepts, as its Gateway catalogue entry says: `text` alone for a text-only model, `image,pdf,text` for one that takes image and PDF input. Uploaded files are sent to the provider with the turn (docs/design/ai-chat.md §9). Switching a kind off later keeps the stored files; the model is told they are not available.                                                                                                                                                                                                                                                                                           |
@@ -161,8 +156,8 @@ Railway's edge keeps a request open up to 15 minutes while data flows and closes
 it after 5 minutes with none. Setup, model selection, spend budget and rollback
 are in `docs/RUNBOOKS/ai-assistant.md`.
 
-**Model choice (Settings → AI models, migration 0040).** No variable switches
-it on: once migration 0040 is applied, a site's owner may allow up to 8 models
+**Model choice (Settings → AI models).** No variable switches
+it on: a site's owner may allow up to 8 models
 from the Vercel AI Gateway's catalogue and mark one as the site's default, with
 no redeploy. The catalogue is read on the server with `AI_GATEWAY_API_KEY`
 (the Gateway provider's `getAvailableModels()`), kept in memory for 10
@@ -191,7 +186,7 @@ nothing saved, every turn is served exactly as before.
 | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `WEBSITE_BOT_CHECK`                                                                  | How website writes prove a human: `turnstile` (default; any other value means this too) verifies a forwarded Turnstile token and **refuses every write when Turnstile is not configured**; `delegated` trusts the calling site's own screening, with the site key and all rate limits still applied. Production: `delegated`.                                                                                                                               |
 | `TURNSTILE_SECRET_KEY`, `TURNSTILE_HOSTNAMES`                                        | Cloudflare Turnstile verification, used only when `WEBSITE_BOT_CHECK` is `turnstile`.                                                                                                                                                                                                                                                                                                                                                                       |
-| `UMAMI_EVENTS_URL`, `UMAMI_WORKSPACE_WEBSITES`, `UMAMI_HOSTNAME`, `UMAMI_USER_AGENT` | Server-side analytics events per site (`UMAMI_WORKSPACE_WEBSITES` is JSON `[{"workspaceId":"…","websiteId":"…"}]`). Lead intake queues no analytics jobs (websites keep their own events until a later merge phase); unset = any analytics job fails visibly.                                                                                                                                                                                               |
+| `UMAMI_EVENTS_URL`, `UMAMI_WORKSPACE_WEBSITES`, `UMAMI_HOSTNAME`, `UMAMI_USER_AGENT` | Server-side analytics events per site (`UMAMI_WORKSPACE_WEBSITES` is JSON `[{"workspaceId":"…","websiteId":"…"}]`). Lead intake queues no analytics jobs (websites keep their own events); unset = any analytics job fails visibly.                                                                                                                                                                                                                         |
 | `UMAMI_API_URL`, `UMAMI_API_KEY`                                                     | The Analytics page: the Umami server's address (https, e.g. `https://umami.gtsales.ca`) and an Umami API key (`umami_…`, made in Umami under the profile's API keys; **secret**), used read-only as a bearer token. Each site's Umami website comes from `UMAMI_WORKSPACE_WEBSITES` (JSON `[{"workspaceId":"…","websiteId":"…"}]`). Unset or invalid = the page says analytics is not connected; a site missing from the map says it has no website linked. |
 | `OUTBOX_ADAPTERS`                                                                    | `fake` swaps analytics for an in-memory sink. Ignored in production.                                                                                                                                                                                                                                                                                                                                                                                        |
 | `SENTRY_DSN`, `RELEASE_SHA`                                                          | Error tracking and release tagging.                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -349,39 +344,22 @@ into one bounded live Gateway test using only in-memory synthetic facts. It also
 needs `AI_GATEWAY_API_KEY` and `AI_GATEWAY_MODEL` from secure environment variables.
 Unset, no provider is called and the script exits 2. See the AI runbook §11.
 
-### Reviewed AI email and interactive drafts
-
-Version 3 uses the existing AI configuration and Site allowlist. Sending also
-requires the existing customer-email provider configuration (`EMAIL_PROVIDER`,
-provider credentials and `EMAIL_CONTACT_HASH_SECRET`) and saved Site email
-settings. No additional secret or database migration is needed. The model never
-gets the recipient/sender preview addresses from tool results; these are sent to
-the authorized browser card only. There is no mailbox/inbox connection.
-
-Reviewed AI lead updates use the existing AI enablement, Gateway key/model and
-Site allowlist. No additional secret or environment variable is required.
-
-Automation builder visual/setup improvements require no new environment
-variable, dependency or migration; existing scheduler and mail configuration
-still controls actual execution and delivery.
-
 ### AI automation authoring
 
 `AI_AUTOMATION_WORKSPACE_IDS` is an optional comma-separated UUID allowlist.
-Unset/empty disables automation authoring only. Sites must also be in
+Unset or empty disables automation authoring only. Sites must also be in
 `AI_ASSISTANT_WORKSPACE_IDS`, the assistant must be configured, and each caller
-needs existing assistant access plus `integration.manage`. Deploy migrations
-0021/0022 before adding test sites to this allowlist. Proposal cards expire after
-10 minutes; saved receipts can be retried for 24 hours. Operational retention
-prunes proposal storage after one day; actor-owned lazy cleanup also runs when
-preparing proposals. No new provider key or model is introduced.
+needs assistant access plus `integration.manage`. Proposal cards expire after
+10 minutes; saved receipts can be retried for 24 hours; proposal storage is
+pruned after one day. No extra provider key or model is involved.
 
 AI authoring generations allow up to 4,800 output tokens when automation tools
-are enabled (ordinary chat stays at 1,200). Shared tool/turn and timeout budgets
-still apply. Only `/ai/automations/revise` accepts up to 96 KiB JSON so a maximum
-65 KiB flow definition and its envelope fit; other JSON endpoints retain 64 KiB.
+are enabled (ordinary chat stays at 1,200). Only `/ai/automations/revise`
+accepts up to 96 KiB JSON so a maximum 65 KiB flow definition and its envelope
+fit; other JSON endpoints retain 64 KiB.
 
-Production rollout (4 Nov 2026): both AI workspace allowlists contain
+In production both AI allowlists contain
 `10000000-0000-4000-8000-000000000101` (Get Canada Sim) and
-`10000000-0000-4000-8000-000000000102` (CanadaWide). The intake-check workspace
-is not included. Provider credentials and the configured model are unchanged.
+`10000000-0000-4000-8000-000000000102` (CanadaWide). The intake-check site is
+not included. Ask AI's written and template emails need the customer-email
+configuration above and the site's saved Settings → Email; no extra variable.

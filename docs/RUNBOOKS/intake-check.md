@@ -127,12 +127,12 @@ Part of the live check, only with the owner's agreement:
 3. Paste file section D (the same id back).
 4. The next run passes and the all-clear `failed_runs:<n>` arrives.
 
-Record what was seen in [HANDOFF §5.1](../HANDOFF.md#51-owner-actions).
+Record what was seen in [HANDOFF §3](../HANDOFF.md#3-waiting-for-the-owner).
 
 ## What stays behind
 
 The contact row of `intake-check@example.invalid` stays (it is reused by every
 run; `app_runtime` cannot delete contacts) and every run leaves one
 `lead.created` audit row on the test site, about 96 a day. Nothing prunes
-them yet (a follow-up in HANDOFF §5.3); section C of the paste file removes
+them yet (a follow-up in HANDOFF §4); section C of the paste file removes
 the site's audit rows with the site.

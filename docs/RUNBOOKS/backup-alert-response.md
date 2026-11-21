@@ -32,7 +32,7 @@ restore because of it.
 
 The nightly Backup itself sends `backup_objects_missing` ("backup completed
 without some documents") when it finished green but could not copy documents
-its snapshot holds as available (#86). The detail is
+its snapshot holds as available. The detail is
 `<deployment>:<run id>:missing_objects:<count>:<labels>`, each label
 `documents/<workspace id>/<object key>`; the run's `backup_completed` line
 (a warning) has the same, and the encrypted manifest lists every one in
