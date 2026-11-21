@@ -187,16 +187,19 @@ databaseTest('abandoned lead retention (restrictAbandoned)', () => {
       insert into app.leads (id, workspace_id, lead_type, status, consent_version, contact_id)
       values (${SUBMITTED}, ${WORKSPACE}, 'internet', 'submitted', 'ci', ${SHARED_CONTACT})
     `;
-    const addFile = (lead: string, key: string) => admin<{ id: string }[]>`
+    // One current file per lead and type (#81): the licence is its own type.
+    const addFile = (lead: string, key: string, documentType = 'passport') => admin<
+      { id: string }[]
+    >`
       insert into app.files (workspace_id, record_type, record_id, document_type, bucket,
         staging_key, candidate_key, object_key, declared_content_type, detected_mime,
         declared_size_bytes, size_bytes, checksum_sha256, status, uploaded_by, expires_at, finalized_at)
-      values (${WORKSPACE}, 'lead', ${lead}, 'passport', 'documents', ${`staging/${key}`},
+      values (${WORKSPACE}, 'lead', ${lead}, ${documentType}, 'documents', ${`staging/${key}`},
         ${`final/${key}`}, ${`final/${key}`}, 'application/pdf', 'application/pdf', 10, 10,
         ${'f'.repeat(64)}, 'available', ${ACTOR}, now(), now())
       returning id
     `;
-    const [licence] = await addFile(WITH_DOCS, 'ci-m2-licence');
+    const [licence] = await addFile(WITH_DOCS, 'ci-m2-licence', 'drivers_licence');
     await addFile(WITH_DOCS, 'ci-m2-passport');
     await addFile(OLD_RESTRICTED, 'ci-m2-old');
     await admin`

@@ -1805,6 +1805,64 @@ select count(*) from app.leads where status <> 'submitted' and submitted_at is n
 select count(*) from app.leads where submitted_at > created_at + interval '1 minute';
 ```
 
+## 0047_one_current_document (2026-11-21, issue #81, not applied)
+
+One current file per record and document type, enforced by the database
+(owner decision, 21 Nov 2026). A file is current when it is `available`, not
+superseded and not held for a change request. Two attaches of one slot that
+overlapped could both stay current; the documents check passed if any current
+file was approved, while tracking showed the newest, so the two could
+disagree. The backend now takes a per-slot advisory lock
+(`document_slot:<site>:<record type>:<record>:<document type>`) in an attach, a
+held file's release and an import, supersedes the earlier current file and
+only then makes the new one current.
+
+**What it changes.** No table, column, grant or policy. It reconciles the
+duplicates already stored with **the newest upload wins** (`created_at`, then
+`revision`, then id): every older current file of a slot is marked
+superseded by the newest. No approval is carried over: if the newest has not
+been approved, the documents check holds the order at Delivered or Activated
+until staff review it, and it appears in the review queue. A restricted
+lead's older duplicate is tombstoned instead (0001's guard permits nothing
+else there; data retention would tombstone it anyway, and 0045's backfill
+deletes its objects). Superseded files keep their objects, as all superseded
+files do today. Then the partial unique index `files_one_current_per_slot` on
+`(workspace_id, record_type, record_id, document_type)`.
+
+**To apply** (owner, Supabase SQL editor as `postgres`), **after** deploying
+the backend that takes the slot lock (an older backend makes a file current
+before superseding and would get a 500 from the index), in one transaction:
+the file's statements without the `--> statement-breakpoint` lines, then the
+tracker row (hash, `created_at`): `0047_one_current_document`
+`9e8b9ea1acccafe584a48178c495a1a8fc5bd30b772b57261737309e9057227e`,
+`1795293817849` (48 rows, after 0046). The updates read the current files
+once and write only duplicates; the index build holds a SHARE lock on
+`app.files` (uploads, reviews and deletions wait, reads go on), well under a
+second at today's size. It is idempotent.
+
+- Before applying, count what it will change:
+
+```sql
+select workspace_id, record_type, record_id, document_type, count(*)
+  from app.files
+ where status = 'available' and superseded_by_file_id is null and not held_for_change_request
+ group by 1, 2, 3, 4 having count(*) > 1;
+```
+
+- **Before it is applied** (with this backend): new attaches already leave
+  one current file; stored duplicates stay until it runs.
+- **After applying**: the select above returns no rows, and a second current
+  file of a slot is refused.
+- Rollback: `drop index app.files_one_current_per_slot;` and delete the
+  tracker row. The supersede marks it wrote stay (the older files were already
+  out of date); to undo one, clear its `superseded_by_file_id` after dropping
+  the index.
+- Verify against the schema:
+
+```sql
+select indexdef from pg_indexes where indexname = 'files_one_current_per_slot';
+```
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,

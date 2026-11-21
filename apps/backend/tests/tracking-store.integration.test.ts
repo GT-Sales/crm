@@ -689,13 +689,13 @@ databaseTest('tracking store and service (challenges and the customer’s orders
     it('reads a document approved, then received once a newer upload replaces it', async () => {
       const lead = leadIds['pending'] ?? '';
       await admin`delete from app.files where workspace_id = ${SITE} and record_id = ${lead}`;
-      const file = async (key: string, createdAt: Date) => {
+      const file = async (key: string, createdAt: Date, id: string = crypto.randomUUID()) => {
         const [row] = await admin<{ id: string }[]>`
-          insert into app.files (workspace_id, record_type, record_id, document_type, bucket,
+          insert into app.files (id, workspace_id, record_type, record_id, document_type, bucket,
             staging_key, candidate_key, object_key, declared_content_type, detected_mime,
             declared_size_bytes, size_bytes, checksum_sha256, status, uploaded_by, expires_at,
             finalized_at, created_at, updated_at)
-          values (${SITE}, 'lead', ${lead}, 'passport', 'ci', ${`staging/${key}`}, ${`docs/${key}`},
+          values (${id}, ${SITE}, 'lead', ${lead}, 'passport', 'ci', ${`staging/${key}`}, ${`docs/${key}`},
             ${`docs/${key}`}, 'application/pdf', 'application/pdf', 100, 100, ${'a'.repeat(64)},
             'available', ${CREDENTIAL}, ${createdAt}, ${createdAt}, ${createdAt}, ${createdAt})
           returning id
@@ -716,8 +716,10 @@ databaseTest('tracking store and service (challenges and the customer’s orders
       `;
       expect(await passport()).toBe('approved');
 
-      const second = await file(`${lead}-2`, days(8));
+      // Superseded first, as the backend does: one current file per type (#81).
+      const second = crypto.randomUUID();
       await admin`update app.files set superseded_by_file_id = ${second} where id = ${first}`;
+      await file(`${lead}-2`, days(8), second);
       expect(await passport()).toBe('received');
 
       await admin`

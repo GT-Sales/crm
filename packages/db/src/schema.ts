@@ -925,6 +925,14 @@ export const files = appSchema
         table.status,
         table.expiresAt,
       ),
+      // One current file per record and document type (#81): attached, not
+      // replaced, not held for a change request. Attach, release and import
+      // supersede the earlier one first, under a per-slot lock.
+      uniqueIndex('files_one_current_per_slot')
+        .on(table.workspaceId, table.recordType, table.recordId, table.documentType)
+        .where(
+          sql`${table.status} = 'available' and ${table.supersededByFileId} is null and not ${table.heldForChangeRequest}`,
+        ),
       // The deletion sweep's check that no live file still points at a key (#82).
       index('files_candidate_key_idx')
         .on(table.candidateKey)

@@ -407,6 +407,17 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
           return { status: 'lead_not_found' };
         }
 
+        const slot = {
+          workspaceId: input.workspaceId,
+          recordType: 'lead' as const,
+          recordId: input.leadId,
+          documentType: input.documentType,
+        };
+        // #81: one current file per slot. Under the slot's lock the earlier
+        // current file is superseded before this one is inserted current.
+        await lockDocumentSlot(tx, slot);
+        const raced = await selectFile(tx, input.workspaceId, input.fileId);
+        if (raced) return { status: 'exists', file: raced };
         const revision = await nextRevision(
           tx,
           input.workspaceId,
@@ -414,6 +425,7 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
           input.leadId,
           input.documentType,
         );
+        await supersedeEarlier(tx, { ...slot, id: input.fileId });
         const now = new Date();
         // Never uploaded here, so no staging object: its keys are all the
         // verified copy, which the import alone wrote.
@@ -461,7 +473,6 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
           checksumSha256: input.checksumSha256,
           createdBy: input.uploadedBy,
         });
-        await supersedeEarlier(tx, file);
         await writeAudit(tx, {
           workspaceId: input.workspaceId,
           actorId: input.actorId,
@@ -516,6 +527,43 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
     return this.database.withTenantTx(
       { workspaceId: input.workspaceId, actorId: input.actorId },
       async (tx) => {
+        // #81: the slot is serialized first (always before a file row lock,
+        // so two attaches cannot wait on each other), the file then locked
+        // and checked, the earlier current file superseded, and only then is
+        // this one made current: the one-current index is never violated, and
+        // two overlapping attaches of a slot leave exactly one current file.
+        const [target] = await tx
+          .select({
+            recordType: files.recordType,
+            recordId: files.recordId,
+            documentType: files.documentType,
+            held: files.heldForChangeRequest,
+          })
+          .from(files)
+          .where(and(eq(files.workspaceId, input.workspaceId), eq(files.id, input.fileId)));
+        if (!target) return { status: 'lost' };
+        const slot = {
+          workspaceId: input.workspaceId,
+          recordType: target.recordType,
+          recordId: target.recordId,
+          documentType: target.documentType,
+        };
+        // A held file waits for staff: it replaces the current one only on approval.
+        if (!target.held) await lockDocumentSlot(tx, slot);
+        const [claimed] = await tx
+          .select({ id: files.id })
+          .from(files)
+          .where(
+            and(
+              eq(files.workspaceId, input.workspaceId),
+              eq(files.id, input.fileId),
+              eq(files.status, 'verifying'),
+              eq(files.candidateKey, input.candidateKey),
+            ),
+          )
+          .for('update');
+        if (!claimed) return { status: 'lost' };
+        if (!target.held) await supersedeEarlier(tx, { ...slot, id: input.fileId });
         const [attached] = await tx
           .update(files)
           .set({
@@ -538,7 +586,7 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
           )
           .returning({ ...fileColumns, held: files.heldForChangeRequest });
         if (!attached) return { status: 'lost' };
-        const { held, ...attachedRow } = attached;
+        const { held: _held, ...attachedRow } = attached;
         const row = toFileRow(attachedRow);
 
         await tx.insert(fileRevisions).values({
@@ -551,9 +599,6 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
           checksumSha256: input.checksumSha256,
           createdBy: input.actorId,
         });
-
-        // A held file waits for staff: it replaces the current one only on approval.
-        if (!held) await supersedeEarlier(tx, row);
 
         // The uploader's staging copy is disposable now that the verified
         // candidate is attached; it goes once its upload link has expired (#108).
@@ -925,6 +970,28 @@ export async function releaseHeldFiles(
 ): Promise<FileRow[]> {
   const released: FileRow[] = [];
   for (const fileId of input.fileIds) {
+    // #81: the earlier current file is superseded, under the slot's lock
+    // (taken before the row's), before this one stops being held and so
+    // becomes current.
+    const [held] = await tx
+      .select({
+        recordType: files.recordType,
+        recordId: files.recordId,
+        documentType: files.documentType,
+      })
+      .from(files)
+      .where(
+        and(
+          eq(files.workspaceId, input.workspaceId),
+          eq(files.id, fileId),
+          eq(files.heldForChangeRequest, true),
+          eq(files.status, 'available'),
+        ),
+      );
+    if (!held) continue;
+    const slot = { workspaceId: input.workspaceId, ...held };
+    await lockDocumentSlot(tx, slot);
+    await supersedeEarlier(tx, { ...slot, id: fileId });
     const [row] = await tx
       .update(files)
       .set({ heldForChangeRequest: false, updatedAt: new Date() })
@@ -939,7 +1006,6 @@ export async function releaseHeldFiles(
       .returning(fileColumns);
     if (!row) continue;
     const file = toFileRow(row);
-    await supersedeEarlier(tx, file);
     await writeAudit(tx, {
       workspaceId: input.workspaceId,
       actorId: input.actorId,
@@ -1038,12 +1104,37 @@ async function selectFile(
   return row ? toFileRow(row) : undefined;
 }
 
+/** One record's document type: the slot that holds at most one current file (#81). */
+export interface DocumentSlot {
+  workspaceId: string;
+  recordType: string;
+  recordId: string;
+  documentType: string;
+}
+
 /**
- * Marks any earlier available object for the same logical slot superseded by
- * `file`, so exactly one current object exists per (record, documentType). A
- * file held for a change request is not in the slot until it is released.
+ * Serializes every write that makes a file current in one slot (attach,
+ * release, import) until the transaction ends (#81). Under READ COMMITTED two
+ * overlapping attaches would each supersede only what they saw and both stay
+ * current; with the lock the second sees the first and supersedes it.
  */
-export async function supersedeEarlier(tx: TenantTransaction, file: FileRow): Promise<void> {
+export async function lockDocumentSlot(tx: TenantTransaction, slot: DocumentSlot): Promise<void> {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${`document_slot:${slot.workspaceId}:${slot.recordType}:${slot.recordId}:${slot.documentType}`}, 0))`,
+  );
+}
+
+/**
+ * Marks the current file of `file`'s slot superseded by `file`, so exactly
+ * one current object exists per (record, documentType): called under the
+ * slot's lock, before `file` itself becomes current, so the one-current index
+ * (migration 0047) never sees two. A file held for a change request is not in
+ * the slot until it is released.
+ */
+export async function supersedeEarlier(
+  tx: TenantTransaction,
+  file: DocumentSlot & { id: string },
+): Promise<void> {
   await tx
     .update(files)
     .set({ supersededByFileId: file.id, updatedAt: new Date() })

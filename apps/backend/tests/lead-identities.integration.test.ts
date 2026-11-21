@@ -121,13 +121,25 @@ databaseTest('lead identities (migrations 0005–0006)', () => {
     overrides: { documentType?: string; status?: string } = {},
   ) => {
     const status = overrides.status ?? 'available';
+    const id = randomUUID();
+    const documentType = overrides.documentType ?? 'drivers_licence';
+    // As an attach does: the earlier current file of the type is superseded
+    // first, one current file per lead and type (#81).
+    if (status === 'available') {
+      await admin`
+        update app.files set superseded_by_file_id = ${id}
+        where workspace_id = ${workspaceId} and record_id = ${leadId}
+          and document_type = ${documentType} and status = 'available'
+          and superseded_by_file_id is null and not held_for_change_request
+      `;
+    }
     const [row] = await admin<{ id: string }[]>`
       insert into app.files (
-        workspace_id, record_type, record_id, document_type, bucket, staging_key, object_key,
+        id, workspace_id, record_type, record_id, document_type, bucket, staging_key, object_key,
         declared_content_type, detected_mime, declared_size_bytes, size_bytes, checksum_sha256,
         status, uploaded_by, expires_at
       ) values (
-        ${workspaceId}, 'lead', ${leadId}, ${overrides.documentType ?? 'drivers_licence'},
+        ${id}, ${workspaceId}, 'lead', ${leadId}, ${documentType},
         'documents', ${`staging/ci/${randomUUID()}`},
         ${status === 'available' ? `candidate/ci/${randomUUID()}` : null},
         'image/jpeg', ${status === 'available' ? 'image/jpeg' : null}, 1000,
