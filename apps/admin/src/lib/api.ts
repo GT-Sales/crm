@@ -176,12 +176,32 @@ export async function getStaffWorkspaceAccess(
   return client(accessToken).staff.workspaceAccess(workspaceId);
 }
 
+/**
+ * The member lists being fetched right now, by token and site. The sidebar
+ * and the page under it each ask for the site's members as they mount; while
+ * one request is on its way the others wait for it instead of sending their
+ * own. Nothing is kept once it answers, so a later call always asks again.
+ */
+const membersInFlight = new Map<string, Promise<ListAssignableMembersResponse>>();
+
+/**
+ * After a change to who the members are or what they are called: a list asked
+ * for from now on must not be answered by a request sent before the change.
+ */
+async function thenForgetMembersInFlight<T>(change: Promise<T>): Promise<T> {
+  try {
+    return await change;
+  } finally {
+    membersInFlight.clear();
+  }
+}
+
 export async function inviteStaff(
   accessToken: string,
   workspaceId: string,
   input: InviteStaffRequest,
 ): Promise<InviteStaffResponse> {
-  return client(accessToken).staff.invite(workspaceId, input);
+  return thenForgetMembersInFlight(client(accessToken).staff.invite(workspaceId, input));
 }
 
 export async function revokeStaff(
@@ -189,14 +209,25 @@ export async function revokeStaff(
   workspaceId: string,
   membershipId: string,
 ): Promise<RevokeStaffResponse> {
-  return client(accessToken).staff.revokeMembership(workspaceId, membershipId);
+  return thenForgetMembersInFlight(
+    client(accessToken).staff.revokeMembership(workspaceId, membershipId),
+  );
 }
 
 export async function listWorkspaceMembers(
   accessToken: string,
   workspaceId: string,
 ): Promise<ListAssignableMembersResponse> {
-  return client(accessToken).staff.listMembers(workspaceId);
+  const key = `${accessToken}\n${workspaceId}`;
+  const sent = membersInFlight.get(key);
+  if (sent) return sent;
+  const request = client(accessToken)
+    .staff.listMembers(workspaceId)
+    .finally(() => {
+      if (membersInFlight.get(key) === request) membersInFlight.delete(key);
+    });
+  membersInFlight.set(key, request);
+  return request;
 }
 
 export async function listServiceCredentials(
@@ -505,7 +536,7 @@ export async function updateStaffProfile(
   accessToken: string,
   displayName: string,
 ): Promise<UpdateStaffProfileResponse> {
-  return client(accessToken).staff.updateProfile({ displayName });
+  return thenForgetMembersInFlight(client(accessToken).staff.updateProfile({ displayName }));
 }
 
 export async function listWorkspaceJobs(
