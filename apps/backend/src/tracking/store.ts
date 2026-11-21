@@ -29,6 +29,7 @@ import { z } from 'zod';
 import { sanitizeLogIdentifier } from '../http/logger.js';
 import { LATEST_REVIEW, currentLeadDocuments } from '../leads/documents-check.js';
 import { toLeadOrder } from '../leads/order.js';
+import { submittedAtReady } from '../leads/submitted-at-schema.js';
 import { pendingForLeads, toTrackingPendingChange } from './change-request-rows.js';
 import { hashesEqual } from './secrets.js';
 
@@ -231,8 +232,18 @@ interface TrackedLeadRow extends Record<string, unknown> {
   phone: string | null;
   payload: unknown;
   orderDetails: unknown;
-  createdAt: Date | string;
+  /** When it was submitted (#94); an order with no stamp, an imported one, its creation. */
+  submittedAt: Date | string;
   documents: unknown;
+}
+
+/**
+ * The date tracking shows and orders by (#94): when the lead was submitted,
+ * or, for an order with no stamp (imported, or from before migration 0046),
+ * when it was created. Before 0046 is applied there is no stamp to read.
+ */
+function submittedDate(ready: boolean): SQL {
+  return ready ? sql`coalesce(l.submitted_at, l.created_at)` : sql`l.created_at`;
 }
 
 const isChangeStage = (stage: string) => CHANGE_REQUEST_STAGES.some((value) => value === stage);
@@ -251,7 +262,7 @@ function toTrackingOrder(
     leadType: leadType.data,
     stage: row.stage,
     stageLabel: trackingStageWord(row.leadType, row.stage),
-    submittedAt: new Date(row.createdAt).toISOString(),
+    submittedAt: new Date(row.submittedAt).toISOString(),
     plan: order.plan
       ? {
           id: order.plan.planId,
@@ -478,6 +489,7 @@ export class DatabaseTrackingStore implements TrackingStore {
 
   listOrders(input: WebsiteScope & { normalizedEmail: string }): Promise<TrackingOrder[]> {
     return this.tx(input, async (tx) => {
+      const ready = await submittedAtReady(tx);
       const rows = await tx.execute<TrackedLeadRow>(sql`
         select
           l.id,
@@ -488,7 +500,7 @@ export class DatabaseTrackingStore implements TrackingStore {
           l.phone,
           l.payload,
           l.order_details as "orderDetails",
-          l.created_at as "createdAt",
+          ${submittedDate(ready)} as "submittedAt",
           (
             select coalesce(json_agg(json_build_object(
               'documentType', d.document_type,
@@ -504,7 +516,7 @@ export class DatabaseTrackingStore implements TrackingStore {
           ) as documents
         from app.leads l
         where ${trackable(input.workspaceId, input.normalizedEmail)}
-        order by l.created_at desc, l.id desc
+        order by ${submittedDate(ready)} desc, l.id desc
         limit ${MAX_TRACKED_ORDERS}
       `);
       const pending = await pendingForLeads(
@@ -545,6 +557,7 @@ export class DatabaseTrackingStore implements TrackingStore {
   ): Promise<TrackedLeadRef | undefined> {
     const qualified = parseQualifiedReference(input.reference);
     return this.tx(input, async (tx) => {
+      const ready = await submittedAtReady(tx);
       // The reference is the order number, or the lead id of an order that has
       // none: matched together with the email, in one query. A number shared by
       // two of the customer's orders is sent with its lead type
@@ -569,7 +582,7 @@ export class DatabaseTrackingStore implements TrackingStore {
               ? sql`(l.lead_type = ${qualified.leadType} and l.external_ref = ${qualified.externalRef}) desc,`
               : sql``
           }
-          l.created_at desc, l.id desc
+          ${submittedDate(ready)} desc, l.id desc
         limit 1
       `);
       return row ? { leadId: row.leadId, leadType: row.leadType, stage: row.stage } : undefined;

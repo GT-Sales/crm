@@ -436,6 +436,13 @@ export const leads = appSchema
        */
       orderDetails: jsonb('order_details').notNull().default({}),
       consentVersion: text('consent_version').notNull(),
+      /**
+       * When the lead was submitted: by the website, or by staff rescuing the
+       * checkout (issue #94). Null while it is a draft, and for an imported
+       * order, which keeps its own `created_at` as its date. Migration 0046
+       * filled it for the leads submitted before it.
+       */
+      submittedAt: timestamp('submitted_at', { withTimezone: true, mode: 'date' }),
       customerDataRestrictedAt: timestamp('customer_data_restricted_at', {
         withTimezone: true,
         mode: 'date',

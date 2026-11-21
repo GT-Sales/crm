@@ -70,6 +70,7 @@ import { loadPlanForFreeze } from '../plans/store.js';
 import { findMissingDocuments } from './documents-check.js';
 import { isPlanAvailable, submittedOrder, toLeadOrder } from './order.js';
 import { planStageMove, todayInToronto, type StageMoveRefusal } from './stage-move.js';
+import { submittedAtReady } from './submitted-at-schema.js';
 import { isClosingStage } from './types.js';
 import {
   DatabasePlainTaskSchemaProbe,
@@ -965,6 +966,8 @@ export async function applyLeadUpdate(
     ) {
       rescue = true;
       set.status = 'submitted';
+      // The rescue is the submission: tracking dates the order by it (#94).
+      if (await submittedAtReady(tx)) set.submittedAt = new Date();
       before['status'] = lead.status;
       after['status'] = 'submitted';
       entries.push({ kind: 'system', data: { event: 'submitted' } });

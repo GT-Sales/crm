@@ -81,6 +81,8 @@ databaseTest('tracking store and service (challenges and the customer’s orders
     createdAt: Date;
     deletedAt?: Date | null;
     restrictedAt?: Date | null;
+    /** When it was submitted; absent, the column stays empty (an imported order). */
+    submittedAt?: Date | null;
     form?: Record<string, postgres.JSONValue>;
     orderDetails?: Record<string, postgres.JSONValue>;
     fullName?: string;
@@ -89,13 +91,14 @@ databaseTest('tracking store and service (challenges and the customer’s orders
     const [row] = await admin<{ id: string }[]>`
       insert into app.leads (workspace_id, lead_type, status, stage, full_name, email, phone,
         external_ref, payload, order_details, consent_version, deleted_at,
-        customer_data_restricted_at, created_at, updated_at)
+        customer_data_restricted_at, submitted_at, created_at, updated_at)
       values (${values.site ?? SITE}, ${values.leadType ?? 'sim_order'}, ${values.status ?? 'submitted'},
         ${values.stage}, ${values.fullName ?? 'Nadia Khan'}, ${values.email}, ${values.phone ?? null},
         ${values.externalRef ?? null},
         ${values.form ? admin.json({ schemaVersion: 1, payload: values.form }) : null},
         ${admin.json(values.orderDetails ?? {})}, 'ci', ${values.deletedAt ?? null},
-        ${values.restrictedAt ?? null}, ${values.createdAt}, ${values.createdAt})
+        ${values.restrictedAt ?? null}, ${values.submittedAt ?? null}, ${values.createdAt},
+        ${values.createdAt})
       returning id
     `;
     if (!row) throw new Error('the lead was not inserted');
@@ -626,6 +629,34 @@ databaseTest('tracking store and service (challenges and the customer’s orders
         websitePlanLabel: null,
       });
       await admin`delete from app.leads where id in (${imported}, ${noDocuments}, ${odd})`;
+    });
+
+    it('dates and orders an order by when it was submitted, an imported one by its own date (#94)', async () => {
+      const email = 'sofia.d94@example.com';
+      // A draft started 30 days ago and submitted 2 days ago; one started and
+      // submitted 5 days ago; an imported order of 3 days ago (no stamp).
+      const lateSubmit = await insertLead({
+        stage: 'pending',
+        email,
+        externalRef: 'MS-69401',
+        createdAt: days(30),
+        submittedAt: days(2),
+      });
+      await insertLead({
+        stage: 'pending',
+        email,
+        externalRef: 'MS-69402',
+        createdAt: days(5),
+        submittedAt: days(5),
+      });
+      await insertLead({ stage: 'pending', email, externalRef: 'MS-69403', createdAt: days(3) });
+      const orders = await store.listOrders({ ...scope, normalizedEmail: email });
+      expect(orders.map((order) => [order.reference, order.submittedAt])).toEqual([
+        ['MS-69401', days(2).toISOString()],
+        ['MS-69403', days(3).toISOString()],
+        ['MS-69402', days(5).toISOString()],
+      ]);
+      expect(lateSubmit).toBeTruthy();
     });
 
     it('lists nothing for another email, and a grant from another site reads nothing', async () => {

@@ -1760,6 +1760,51 @@ select workspace_id, last_error, count(*) from app.file_object_deletions
  where completed_at is null and attempts >= 5 group by 1, 2;
 ```
 
+## 0046_lead_submitted_at (2026-11-21, issue #94, not applied)
+
+The customer's order tracking dates an order by when it was submitted (owner
+decision, 21 Nov 2026). It used the lead's `created_at`, the start of the
+draft, so a checkout finished days later or rescued by staff showed the
+wrong date and sorted in the wrong place.
+
+**What it changes.** `app.leads.submitted_at` (`timestamptz`, nullable; the
+generated `ADD COLUMN`, given `IF NOT EXISTS`), then one `UPDATE` that fills
+it for every lead with `status = 'submitted'` and no date yet: the earliest
+`system` `submitted` timeline entry of the lead where one exists (the
+website's submission, or staff's rescue), else its `created_at`. Imported
+legacy orders have no such entry and keep their original date. Only
+`submitted_at` is written: `updated_at` and the inbox order stay, the 0041
+mirror (on `status`) does not fire, and the restriction guard does not watch
+the column. No grant or policy changes. From then on the backend stamps it on
+the website's submission (create or save) and on a staff rescue; tracking
+shows and orders by `coalesce(submitted_at, created_at)`.
+
+**To apply** (owner, Supabase SQL editor as `postgres`), in one transaction:
+the file's statements without the `--> statement-breakpoint` lines, then the
+tracker row (hash, `created_at`): `0046_lead_submitted_at`
+`ecfc5ecc0402a06ca53948453da453a31d98f63fc97b073ffaa116e2687ee58f`, `1795293356213` (47 rows, after 0045). The
+`ADD COLUMN` only changes the catalogue (no rewrite, a brief ACCESS
+EXCLUSIVE lock); the `UPDATE` writes each submitted lead once in one
+statement, a few thousand rows today, under a second, holding those rows'
+locks until it commits (a website save or staff edit of one waits). It is
+idempotent: run again, it changes nothing. The deploy and the migration may
+go in either order.
+
+- **Before it is applied** (with this backend): nothing is stamped and
+  tracking dates by `created_at`, as before; the backend's probe asks again
+  every five minutes.
+- **After applying**: tracking shows each order's submission date at once.
+- Rollback, after reverting the code: `alter table app.leads drop column
+submitted_at;` and delete the tracker row.
+- Verify against the schema:
+
+```sql
+select count(*) from app.leads where status = 'submitted' and submitted_at is null;  -- 0
+select count(*) from app.leads where status <> 'submitted' and submitted_at is not null;  -- 0
+-- Orders whose submission came later than their start (rescued or finished later).
+select count(*) from app.leads where submitted_at > created_at + interval '1 minute';
+```
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,

@@ -49,6 +49,7 @@ import {
 } from './idempotency.js';
 import { isPlanAvailable, submittedOrder, toLeadOrder } from './order.js';
 import { nextSiteNumber } from './site-counter.js';
+import { submittedAtReady } from './submitted-at-schema.js';
 import { selectLeadPage } from './staff-queries.js';
 import { generateDraftGrantToken, hashDraftGrantToken } from './token.js';
 import { checkLeadForm, checkLeadSubmit, isClosingStage, type LeadIntakeProblem } from './types.js';
@@ -665,6 +666,8 @@ export class DatabaseLeadStore implements LeadStore {
             attribution,
             consentVersion: input.consentVersion,
             ...(orderDetails ? { orderDetails } : {}),
+            // When the customer submitted it, for order tracking (#94).
+            ...(input.submit && (await submittedAtReady(tx)) ? { submittedAt: now } : {}),
           })
           .returning(summaryColumns);
         if (!leadRow) throw new Error('lead insert did not return a row');
@@ -884,6 +887,8 @@ export class DatabaseLeadStore implements LeadStore {
         if (input.submit) {
           updates.status = 'submitted';
           changedFields.push('status');
+          // When the customer submitted it, for order tracking (#94).
+          if (await submittedAtReady(tx)) updates.submittedAt = now;
         }
         if (movedOnSubmit) {
           updates.stage = submittedLeadStage(grant.leadType);
