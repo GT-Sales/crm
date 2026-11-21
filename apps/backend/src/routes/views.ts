@@ -97,8 +97,11 @@ export function createSavedViewRoutes(dependencies: SavedViewRouteDependencies):
     try {
       const ctx = await allowedContext(req, res, workspaceId);
       if (!ctx) return;
-      const views = await dependencies.store.list(ctx, query.data.object);
-      const catalog = await dependencies.loadCatalog(ctx);
+      // Two independent reads, each its own transaction: asked together.
+      const [views, catalog] = await Promise.all([
+        dependencies.store.list(ctx, query.data.object),
+        dependencies.loadCatalog(ctx),
+      ]);
       res.json({ views: views.map((view) => cleaned(catalog, view)), requestId: req.id });
     } catch (error) {
       failed(req, res, error);

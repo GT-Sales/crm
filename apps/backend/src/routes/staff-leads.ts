@@ -362,15 +362,21 @@ export function createStaffLeadRoutes(context: StaffRouteContext): Router {
       }
       const store = leadWork(req, res);
       if (!store) return;
+      // Whether the site can send mail and its catalogue are independent
+      // reads, each its own transaction: asked together, before the lead.
+      const mayEmail = decideAccess(decision.access, 'lead.manage').allowed;
+      const [emailAvailable, catalog] = await Promise.all([
+        mayEmail
+          ? (dependencies.customerEmail?.available({
+              workspaceId: params.workspaceId,
+              actorId: actor.actorId,
+            }) ?? false)
+          : false,
+        siteCatalog(req, params.workspaceId, actor.actorId),
+      ]);
       const access = {
         ...leadAccessOf(decision.access),
-        emailCustomer:
-          decideAccess(decision.access, 'lead.manage').allowed &&
-          ((await dependencies.customerEmail?.available({
-            workspaceId: params.workspaceId,
-            actorId: actor.actorId,
-          })) ??
-            false),
+        emailCustomer: mayEmail && emailAvailable,
         emailReplies: replyAddressing?.enabledFor(params.workspaceId) ?? false,
         downloadDocuments: decideAccess(decision.access, 'document.download').allowed,
         reviewDocuments: decideAccess(decision.access, 'order.manage').allowed,
@@ -384,7 +390,7 @@ export function createStaffLeadRoutes(context: StaffRouteContext): Router {
         actorId: actor.actorId,
         leadId: params.id,
         includeWork: access.contacts,
-        catalog: await siteCatalog(req, params.workspaceId, actor.actorId),
+        catalog,
       });
       if (!result) {
         sendDomainError(res, req.id, 'lead_not_found', 404);
