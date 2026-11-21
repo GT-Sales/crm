@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "dev": "node --env-file-if-exists=.env.local --import tsx --watch src/server.ts",
-    "catalogue:job": "tsx src/catalogue/manual.ts",
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

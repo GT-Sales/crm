@@ -230,7 +230,7 @@ carries `Cache-Control: no-store`, `X-Content-Type-Options: nosniff` and
 with 400 (413 when too large), a database it could not reach with a retryable
 503 and anything else with a generic 500 (audit L-9, L-11).
 
-Scheduler (`ENABLE_SCHEDULER=true`, one replica): `outbox` 60 s,
+Scheduler (`ENABLE_SCHEDULER=1`, one replica): `outbox` 60 s,
 `document_cleanup` 1 h (with it, once migration 0036 is applied, the sweep of
 Ask AI files left unsent for a day, `ai_attachment_sweep_failed` when one
 site's sweep fails), `data_retention` 24 h (calls
@@ -842,7 +842,7 @@ submission so a retry never makes a second order (§2.6 item 9).
 - **Documents**: staff upload and replace on the lead page, with moving day.
 - **Ask AI, deferred**: the human-only writes (docs/design/ai-actions.md; the
   owner's list in the prompt), other write actions, documents/knowledge retrieval,
-  embeddings, automation or n8n triggers, voice, model selection in the UI,
+  embeddings, automation or n8n triggers, voice,
   any cross-site analysis, and publishing, activating or switching a flow on from chat (switching one off is a card). Whether the real-model evaluation of
   automation authoring ([docs/evals](evals/automation-authoring.md)) and its
   controlled acceptance (RUNBOOKS/ai-automation-authoring.md) were run is not
@@ -895,8 +895,7 @@ submission so a retry never makes a second order (§2.6 item 9).
   restore responses return the raw stored custom values instead of the shaped
   ones; `property.manage` cannot be granted per member; a built-in label
   override cannot be cleared back to the code label from the UI.
-- **Plans** (none blocking): an `empty` filter on an order property across all
-  lead types also matches types that take no order; a combined contact and
+- **Plans** (none blocking): a combined contact and
   order `PATCH` that the order part refuses still refreshes the contact; a
   plan property can be both `staffOnly` and `websiteVisible` (the website then
   sees it); a plan saved at the moment its property is deleted can keep a value

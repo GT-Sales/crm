@@ -307,10 +307,10 @@ export class MachineRegistry {
 
   /**
    * Internal read-only lookup for offline/ops tooling that must act as a
-   * scheduler machine identity without replaying a scheduler secret (the manual
-   * `catalogue:job -- reconcile` handler). Returns the identity only when
-   * exactly one non-revoked scheduler entry both authorizes the workspace and
-   * holds `scope`; zero or several matches fail closed, so a caller can never
+   * scheduler machine identity without replaying a scheduler secret. Returns
+   * the identity only when exactly one non-revoked scheduler entry both
+   * authorizes the workspace and holds `scope`; zero or several matches fail
+   * closed, so a caller can never
    * pick a synthetic or guessed actor.
    */
   schedulerForWorkspace(
