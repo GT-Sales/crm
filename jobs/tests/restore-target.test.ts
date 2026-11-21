@@ -345,6 +345,44 @@ describe('PsqlAndS3RestoreTarget.applyDatabase', () => {
     expect(kept).not.toContain('Ada Lovelace');
   });
 
+  it('drops a value a primary error line embeds, keeping the message and the names', async () => {
+    const MARKER = 'zq-marker-7731@example.invalid';
+    const stderr = [
+      `psql:/tmp/x/data.sql:7: ERROR:  invalid input syntax for type uuid: "${MARKER}"`,
+      `psql:/tmp/x/data.sql:8: ERROR:  value "${MARKER}" is out of range for type integer`,
+      `psql:/tmp/x/data.sql:9: ERROR:  invalid input value for enum lead_status: "${MARKER}"`,
+      `psql:/tmp/x/data.sql:10: ERROR:  syntax error at or near "${MARKER}"`,
+      `psql:/tmp/x/data.sql:11: ERROR:  invalid byte sequence for encoding "UTF8": 0xe9 0x20 0x7a`,
+      `psql:/tmp/x/data.sql:12: ERROR:  invalid input syntax for type uuid: "a"${MARKER}"b"`,
+      `psql:/tmp/x/data.sql:13: ERROR:  unterminated quoted string at or near 'x ${MARKER}'`,
+      `psql:/tmp/x/data.sql:14: ERROR:  new row for relation "leads" violates check constraint "leads_note_check"`,
+      `psql: error: connection to server at "db.internal" (10.0.0.1), port 5432 failed: FATAL:  password authentication failed for user "postgres"`,
+      `DETAIL:  Failing row contains (${MARKER})`,
+    ].join('\n');
+    const kept = psqlErrorLines(stderr);
+    expect(kept).not.toContain(MARKER);
+    expect(kept).not.toContain('0xe9');
+    expect(kept.split('\n')).toEqual([
+      'psql:/tmp/x/data.sql:7: ERROR:  invalid input syntax for type uuid: "…"',
+      'psql:/tmp/x/data.sql:8: ERROR:  value "…" is out of range for type integer',
+      'psql:/tmp/x/data.sql:9: ERROR:  invalid input value for enum lead_status: "…"',
+      'psql:/tmp/x/data.sql:10: ERROR:  syntax error at or near "…"',
+      'psql:/tmp/x/data.sql:11: ERROR:  invalid byte sequence for encoding "UTF8": 0x…',
+      'psql:/tmp/x/data.sql:12: ERROR:  invalid input syntax for type uuid: "…"',
+      "psql:/tmp/x/data.sql:13: ERROR:  unterminated quoted string at or near '…'",
+      'psql:/tmp/x/data.sql:14: ERROR:  new row for relation "leads" violates check constraint "leads_note_check"',
+      'psql: error: connection to server at "db.internal" (10.0.0.1), port 5432 failed: FATAL:  password authentication failed for user "postgres"',
+    ]);
+
+    const { run } = recordingRun([{ exitCode: 3, stderr }]);
+    const error: unknown = await target(run)
+      .applyDatabase(dump())
+      .catch((caught: unknown) => caught);
+    const message = error instanceof Error ? error.message : '';
+    expect(message).toContain('invalid input syntax for type uuid');
+    expect(message).not.toContain(MARKER);
+  });
+
   it('psqlErrorLines keeps connection and server error lines, with credentials still redacted', async () => {
     expect(
       psqlErrorLines(

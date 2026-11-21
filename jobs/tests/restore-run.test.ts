@@ -15,6 +15,7 @@ import {
 import { buildManifest, manifestArtifact, type BackupManifest } from '../src/archive/manifest.js';
 import type { DatabaseDumpArtifacts } from '../src/backup/pg-dump.js';
 import { runRestore, type RestoreDependencies, type RestoreTarget } from '../src/restore/run.js';
+import { PsqlAndS3RestoreTarget } from '../src/restore/target.js';
 
 const RUN_ID = 'run-2026-10-29T06-17-00-000Z-test';
 const CAPTURED_AT = new Date('2026-10-29T06:17:00.000Z');
@@ -368,6 +369,33 @@ describe('runRestore', () => {
       failureReason: 'psql_failed:3:boom',
     });
     expect(target.calls.map((call) => call.method)).toEqual(['preflight', 'applyDatabase']);
+  });
+
+  it('a load error that embeds a customer value reaches the report without the value', async () => {
+    const MARKER = 'zq-marker-5519@example.invalid';
+    const archive = await seedArchive();
+    const real = new PsqlAndS3RestoreTarget({
+      databaseUrl: 'postgresql://postgres:secret@db.example.test:5432/postgres',
+      skipRoles: true,
+      baseEnv: { PATH: '/usr/bin' },
+      run: async () => ({
+        stdout: new Uint8Array(),
+        stderr: [
+          `psql:/tmp/x/data.sql:7: ERROR:  invalid input syntax for type uuid: "${MARKER}"`,
+          `DETAIL:  Failing row contains (${MARKER})`,
+        ].join('\n'),
+        exitCode: 3,
+      }),
+    });
+    class PsqlBackedTarget extends RecordingTarget {
+      override async applyDatabase(artifacts: DatabaseDumpArtifacts): Promise<void> {
+        await real.applyDatabase(artifacts);
+      }
+    }
+    const report = await runRestore(deps(archive, { target: new PsqlBackedTarget() }));
+    expect(report).toMatchObject({ failedStage: 'database_apply', restored: false });
+    expect(report.failureReason).toContain('invalid input syntax for type uuid');
+    expect(JSON.stringify(report)).not.toContain(MARKER);
   });
 
   it('a failed object apply stops the run before counts', async () => {
