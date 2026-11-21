@@ -5,7 +5,7 @@ import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
 
 import { customerEmailEnvironmentFromEnv } from '../src/email/senders.js';
-import { toLeadActivity } from '../src/leads/staff-queries.js';
+import { toLeadActivity } from '../src/leads/lead-work-queries.js';
 import { DatabaseLeadStore } from '../src/leads/store.js';
 import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
 import { DatabasePlanStore } from '../src/plans/store.js';

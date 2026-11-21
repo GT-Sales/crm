@@ -21,7 +21,8 @@ import {
   type WorkspaceTask,
 } from '@gt-sales/contracts';
 import { type StageMoveRefusal } from './stage-move.js';
-import { type LeadStats, type LeadWithWork } from './staff-queries.js';
+import { type LeadStats } from './staff-queries.js';
+import { type LeadWithWork } from './lead-work-queries.js';
 import type { Scope, WriteScope } from '../tenant-scope.js';
 
 /**

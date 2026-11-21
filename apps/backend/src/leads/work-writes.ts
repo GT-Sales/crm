@@ -37,7 +37,8 @@ import { isPlanAvailable, submittedOrder, toLeadOrder } from './order.js';
 import { planStageMove, todayInToronto } from './stage-move.js';
 import { submittedAtReady } from './submitted-at-schema.js';
 import { isClosingStage } from './types.js';
-import { selectLeadDetail, selectTask, toLeadActivity } from './staff-queries.js';
+import { selectLeadDetail } from './staff-queries.js';
+import { selectTask, toLeadActivity } from './lead-work-queries.js';
 import type { WriteScope } from '../tenant-scope.js';
 import { upsertContact } from './store.js';
 import {

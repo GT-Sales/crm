@@ -14,7 +14,7 @@ import {
   type LeadActivity,
 } from '@gt-sales/contracts';
 
-import { toLeadActivity } from '../leads/staff-queries.js';
+import { toLeadActivity } from '../leads/lead-work-queries.js';
 import { keptMailText } from './kept-text.js';
 import { loadReplyAddressing, type ReplyAddressing } from './reply-address.js';
 

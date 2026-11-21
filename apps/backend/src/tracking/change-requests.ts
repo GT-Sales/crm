@@ -30,7 +30,8 @@ import { composeCustomerEmail } from '../email/compose.js';
 import { queueComposedEmail } from '../email/queue.js';
 import { isPlanAvailable } from '../leads/order.js';
 import { nextSiteNumber } from '../leads/site-counter.js';
-import { selectLeadDetail, toLeadActivity } from '../leads/staff-queries.js';
+import { selectLeadDetail } from '../leads/staff-queries.js';
+import { toLeadActivity } from '../leads/lead-work-queries.js';
 import {
   applyLeadUpdate,
   lockLead,

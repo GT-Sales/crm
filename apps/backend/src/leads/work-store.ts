@@ -53,12 +53,14 @@ import {
   selectLeadDetail,
   selectLeadStats,
   selectLeadSummary,
+} from './staff-queries.js';
+import {
   selectLeadWithWork,
   selectWorkspaceTasks,
   toLeadActivity,
   type ActivityRow,
-  type LeadFilters,
-} from './staff-queries.js';
+} from './lead-work-queries.js';
+import { type LeadFilters } from './lead-filters.js';
 import type { Scope, WriteScope } from '../tenant-scope.js';
 import { cancelLeadWork } from '../automations/records.js';
 import {
