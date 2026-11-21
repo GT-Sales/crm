@@ -9,15 +9,17 @@ contact details for Canadian customers, with a staff admin, website intake,
 customer tracking and an AI assistant. The plan is chosen for that: security
 and privacy first, then performance, then an independent check.
 
-## Open questions for the owner
+## Owner answers (21 Nov 2026)
 
-- Is there a staging environment (backend, database and storage) separate from
-  production, or does this plan include creating one? Load tests and the
-  dynamic scan need one and must never run against production.
-- What is the expected peak traffic (orders per hour, staff online at once)?
-  That sets the load test targets.
-- Does any site take card payments itself? If so, PCI DSS applies and is
-  added to phase 2.
+- **No staging environment exists.** Creating one (backend, database and
+  storage, synthetic data only) is the first step of phase 3 and is needed for
+  the dynamic scan in phase 2. Nothing in this plan runs load or attack
+  traffic against production.
+- **Traffic is very low today and no peak is forecast.** Load tests therefore
+  measure where the system starts to slow or fail, to know the headroom,
+  instead of testing against a target. The spike and soak tests are low
+  priority until traffic grows.
+- **No site takes card payments.** PCI DSS does not apply.
 
 ## Phase 1: automated checks in CI
 
@@ -81,8 +83,7 @@ finds what an internal review misses.
 
 - **SOC 2 and ISO 27001.** Formal audits, worth their cost only when a business
   customer or partner asks for the certificate.
-- **PCI DSS.** Applies only if a site handles card payments itself (see the
-  open questions).
+- **PCI DSS.** No site takes card payments. Revisit if that changes.
 - **Mutation testing.** Useful later; low priority given the existing tests.
 
 ## Order
