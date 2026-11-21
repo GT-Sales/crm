@@ -108,21 +108,25 @@ function logItemFailure(kind: 'wait' | 'timer', id: string, error: unknown): voi
   );
 }
 
-/** One alert per condition per site, best effort, never failing the tick. */
-async function alertOnce(
-  dependencies: AutomationTickDependencies,
+/**
+ * One alert per condition per site, best effort, never failing the tick. The
+ * site is remembered only once the alert was delivered, so a failed delivery
+ * is tried again on the next tick.
+ */
+export async function alertOnce(
+  dependencies: Pick<AutomationTickDependencies, 'alerts'>,
   seen: Set<string> | undefined,
   workspaceId: string,
   kind: 'automation_backlog' | 'automation_site_unscheduled',
   detail: string,
 ): Promise<void> {
   if (seen?.has(workspaceId)) return;
-  seen?.add(workspaceId);
-  await dependencies.alerts
-    ?.send({ kind, detail, occurredAt: new Date().toISOString() })
-    .catch(() => {
-      // Best effort: the log line is the record.
-    });
+  try {
+    await dependencies.alerts?.send({ kind, detail, occurredAt: new Date().toISOString() });
+    seen?.add(workspaceId);
+  } catch {
+    // Best effort: the log line is the record, and the next tick tries again.
+  }
 }
 
 /** A site's pass: which ids to run now, and whether more may be due. */

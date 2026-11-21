@@ -58,6 +58,51 @@ it('alerts for a persisted failed queue even when later runs process nothing', a
   }
 });
 
+it('retries the queue warning on the next tick when its delivery failed, then warns once', async () => {
+  vi.useFakeTimers();
+  try {
+    vi.setSystemTime(0);
+    let state: QueueHealthState = INITIAL_QUEUE_HEALTH_STATE;
+    const jobs = {
+      run: vi.fn(async () => ({ failed: 0, uncertain: 0 })),
+      queueHealth: vi.fn(async () => ({ failed: 1, uncertain: 0 })),
+    };
+    const delivered: string[] = [];
+    let attempts = 0;
+    const alerts = {
+      send: vi.fn(async (alert: { detail: string }) => {
+        attempts += 1;
+        if (attempts === 1) throw new Error('mail provider down');
+        delivered.push(alert.detail);
+      }),
+    };
+    const input = { authorizedWorkspaceIds: [WORKSPACE], actorId: ACTOR };
+    const tick = () =>
+      runOutboxWithQueueMonitor(
+        jobs,
+        alerts,
+        input,
+        (next) => {
+          state = next;
+        },
+        () => state,
+      );
+    await tick();
+    vi.setSystemTime(10 * 60_000);
+    await tick(); // the first delivery fails
+    expect(delivered).toEqual([]);
+    vi.setSystemTime(11 * 60_000);
+    await tick(); // retried and delivered
+    expect(delivered).toEqual(['failed:1,uncertain:0']);
+    vi.setSystemTime(12 * 60_000);
+    await tick(); // delivered once: no repeat
+    expect(delivered).toHaveLength(1);
+    expect(alerts.send).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 interface Deferred<T> {
   promise: Promise<T>;
   resolve: (value: T) => void;

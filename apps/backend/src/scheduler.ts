@@ -617,17 +617,21 @@ export async function runOutboxWithQueueMonitor(
   const summary = await jobs.run(input);
   const queue = await jobs.queueHealth(input);
   const outcome = trackQueueHealth(getState(), queue, Date.now());
-  setState(outcome.nextState);
-  if (outcome.shouldAlert) {
-    await alerts
-      .send({
-        kind: 'job_queue_stuck',
-        detail: `failed:${queue.failed},uncertain:${queue.uncertain}`,
-        occurredAt: new Date().toISOString(),
-      })
-      .catch(() => {
-        // Best-effort — the outbox run itself already succeeded/failed independently.
-      });
+  if (!outcome.shouldAlert) {
+    setState(outcome.nextState);
+    return summary;
+  }
+  try {
+    await alerts.send({
+      kind: 'job_queue_stuck',
+      detail: `failed:${queue.failed},uncertain:${queue.uncertain}`,
+      occurredAt: new Date().toISOString(),
+    });
+    setState(outcome.nextState);
+  } catch {
+    // Best-effort — the outbox run itself already succeeded/failed independently.
+    // The warning counts as given only once it was delivered, so the next tick tries again.
+    setState({ ...outcome.nextState, alerted: false, alertedBacklog: 0 });
   }
   return summary;
 }
