@@ -1681,6 +1681,7 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
         expiredIntents: 0,
         deletedObjects: 0,
         failedDeletes: 0,
+        stuckDeletions: 0,
         aiAttachments: {
           removed: 2,
           deletedObjects: 2,
