@@ -180,6 +180,11 @@ At the cutover Get Canada Sim's `supabase/migrations` (0001–0044) are copied t
    or download is audited.
 8. **External side effects go through the outbox**, executed after commit.
 9. **No PII in logs, errors or URLs.** No service-role key in application code.
+   The leads search is a customer's name, email or phone, so it is in no URL:
+   the inbox keeps it in page state (not in its address, not in a saved
+   view) and sends it in a request body (`POST …/leads/search`,
+   `…/leads/board/search`); the non-personal filters stay in the address and
+   shareable (owner decision, 21 Nov 2026, issue #83).
 10. **Strict TypeScript, no `any`.** Types, schemas and DB rows derive from one
     source; API responses expose only the fields each audience may see.
 11. **"Not configured" and "the query failed" are different states.** A failed

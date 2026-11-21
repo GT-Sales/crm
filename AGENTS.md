@@ -278,7 +278,7 @@ catalogue, never the code list directly. A **layout** orders the sections and
 property keys of the lead record for one site and lead type
 (`app.property_layouts`). A **saved view** is one staff member's private copy
 of the leads inbox state (layout, type, stage, assignee, archive, due today,
-filters, sort, property columns and hidden columns), never the free-text search or the page; `app.saved_views` is
+filters, sort, property columns and hidden columns), never the free-text search or the page. The free-text search is in no URL at all (#83): the inbox keeps it in page state (`apps/admin/src/lib/lead-search-handoff.ts` carries it from Ctrl/Cmd K), and it reaches the backend in the body of `POST …/leads/search` or `…/leads/board/search`, never as `?q=`. `app.saved_views` is
 visible only to its owner, at most 30 per person per site.
 
 A **plan** is something a site sells, for one order lead type (`sim_order`,

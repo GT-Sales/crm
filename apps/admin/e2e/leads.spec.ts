@@ -56,8 +56,9 @@ test('the inbox shows each lead type with counts and searches as you type', asyn
   await expect(page.getByRole('link', { name: 'Ellis Mobile' })).toBeVisible();
 
   await page.getByRole('searchbox', { name: 'Search leads' }).fill('blake');
-  await expect(page).toHaveURL(/q=blake/);
   await expect(page.getByRole('link', { name: 'Blake Sample' })).toBeVisible();
+  // The search is page state: the address never carries it (#83).
+  expect(page.url()).not.toMatch(/blake/i);
   await expect(page.getByRole('link', { name: 'Avery Example' })).toHaveCount(0);
 
   await page.getByRole('searchbox', { name: 'Search leads' }).fill('');

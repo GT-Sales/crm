@@ -38,7 +38,7 @@ const members = [self, colleague];
 describe('inbox query', () => {
   it('round-trips through the URL', () => {
     const query = parseInboxQuery(
-      new URLSearchParams('type=internet&layout=board&assignee=me&q=avery&page=3'),
+      new URLSearchParams('type=internet&layout=board&assignee=me&page=3'),
     );
     expect(query).toEqual({
       type: 'internet',
@@ -48,10 +48,15 @@ describe('inbox query', () => {
       hide: [],
       stage: undefined,
       assignee: 'me',
-      q: 'avery',
       page: 3,
     });
-    expect(inboxSearch(query)).toBe('?type=internet&layout=board&assignee=me&q=avery&page=3');
+    expect(inboxSearch(query)).toBe('?type=internet&layout=board&assignee=me&page=3');
+  });
+
+  it('keeps the free-text search out of the URL: never read from it, never written to it (#83)', () => {
+    const query = parseInboxQuery(new URLSearchParams('type=internet&q=avery'));
+    expect(query.q).toBeUndefined();
+    expect(inboxSearch({ ...query, q: 'Avery Example' })).toBe('?type=internet');
   });
 
   it('keeps the follow-ups due filter in the URL, as a table and never in the archive', () => {

@@ -323,6 +323,8 @@ import {
 } from './reports';
 import {
   leadBoardResponseSchema,
+  searchLeadBoardRequestSchema,
+  searchWorkspaceLeadsRequestSchema,
   leadsSummaryResponseSchema,
   leadStatsResponseSchema,
   listWorkspaceLeadsResponseSchema,
@@ -935,6 +937,12 @@ export interface BackendClient {
 
 const encode = encodeURIComponent;
 
+/** A JSON string's value, unknown until a schema reads it. */
+function jsonValue(raw: string): unknown {
+  const value: unknown = JSON.parse(raw);
+  return value;
+}
+
 export function createBackendClient(options: BackendClientOptions): BackendClient {
   const origin = new URL(options.baseUrl).origin;
   const doFetch = options.fetch ?? globalThis.fetch;
@@ -1376,8 +1384,43 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           body,
           exportOptions,
         ),
-      listLeads: (workspaceId, query) =>
-        call({
+      listLeads: (workspaceId, query) => {
+        const where =
+          typeof query?.where === 'string'
+            ? query.where
+            : query?.where && query.where.length > 0
+              ? JSON.stringify(query.where)
+              : undefined;
+        const columns =
+          typeof query?.columns === 'string'
+            ? query.columns
+            : query?.columns && query.columns.length > 0
+              ? query.columns.join(',')
+              : undefined;
+        const q = query && 'q' in query ? query.q : undefined;
+        // A search is a customer's name, email or phone: in the body, never the URL (#83).
+        if (q !== undefined) {
+          return call({
+            method: 'POST',
+            path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/search`,
+            body: searchWorkspaceLeadsRequestSchema.parse({
+              q,
+              status: query?.status,
+              type: query?.type,
+              stage: query?.stage,
+              assignee: query?.assignee,
+              view: query?.view,
+              dueBy: query?.dueBy,
+              where: where === undefined ? undefined : jsonValue(where),
+              sort: query?.sort,
+              columns: columns?.split(','),
+              page: query?.page,
+              pageSize: query?.pageSize,
+            }),
+            responseSchema: listWorkspaceLeadsResponseSchema,
+          });
+        }
+        return call({
           method: 'GET',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads`,
           query: {
@@ -1385,27 +1428,17 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
             type: query?.type,
             stage: query?.stage,
             assignee: query?.assignee,
-            q: query?.q,
             view: query?.view,
             dueBy: query?.dueBy,
-            where:
-              typeof query?.where === 'string'
-                ? query.where
-                : query?.where && query.where.length > 0
-                  ? JSON.stringify(query.where)
-                  : undefined,
+            where,
             sort: query?.sort,
-            columns:
-              typeof query?.columns === 'string'
-                ? query.columns
-                : query?.columns && query.columns.length > 0
-                  ? query.columns.join(',')
-                  : undefined,
+            columns,
             page: query?.page,
             pageSize: query?.pageSize,
           },
           responseSchema: listWorkspaceLeadsResponseSchema,
-        }),
+        });
+      },
       leadsSummary: (workspaceId, query) =>
         call({
           method: 'GET',
@@ -1446,24 +1479,40 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           query: { leadType: query.leadType, days: query.days },
           responseSchema: sourceReportResponseSchema,
         }),
-      leadBoard: (workspaceId, query) =>
-        call({
+      leadBoard: (workspaceId, query) => {
+        const where =
+          typeof query.where === 'string'
+            ? query.where
+            : query.where && query.where.length > 0
+              ? JSON.stringify(query.where)
+              : undefined;
+        const q = 'q' in query ? query.q : undefined;
+        if (q !== undefined) {
+          return call({
+            method: 'POST',
+            path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/board/search`,
+            body: searchLeadBoardRequestSchema.parse({
+              q,
+              type: query.type,
+              assignee: query.assignee,
+              where: where === undefined ? undefined : jsonValue(where),
+              perStage: query.perStage,
+            }),
+            responseSchema: leadBoardResponseSchema,
+          });
+        }
+        return call({
           method: 'GET',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/board`,
           query: {
             type: query.type,
             assignee: query.assignee,
-            q: query.q,
-            where:
-              typeof query.where === 'string'
-                ? query.where
-                : query.where && query.where.length > 0
-                  ? JSON.stringify(query.where)
-                  : undefined,
+            where,
             perStage: query.perStage,
           },
           responseSchema: leadBoardResponseSchema,
-        }),
+        });
+      },
       getLead: (workspaceId, leadId) =>
         call({
           method: 'GET',
