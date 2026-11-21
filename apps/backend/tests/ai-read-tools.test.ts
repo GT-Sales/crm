@@ -221,7 +221,13 @@ function stores(overrides: Partial<WideReadStores> = {}): WideReadStores {
         total: 4,
       })),
     },
-    deliverySummary: vi.fn(async () => ({ sent: 5, delivered: 4, failed: 1, uncertain: 0 })),
+    deliverySummary: vi.fn(async () => ({
+      queued: 2,
+      sent: 5,
+      delivered: 4,
+      failed: 1,
+      uncertain: 0,
+    })),
     jobs: {
       listActive: vi.fn(async () => ({
         jobs: [
@@ -488,7 +494,13 @@ describe('documents review queue (D1)', () => {
 describe('sent mail and delivery (M3, M4)', () => {
   it('lists template or subject, status and lead, never a body or a reply’s words', async () => {
     const { data, text } = await call(leadsMember, 'listSentMail');
-    expect(data['delivery']).toEqual({ sent: 5, delivered: 4, failed: 1, uncertain: 0 });
+    expect(data['delivery']).toEqual({
+      queued: 2,
+      sent: 5,
+      delivered: 4,
+      failed: 1,
+      uncertain: 0,
+    });
     const mails = data['mails'] as Record<string, unknown>[];
     expect(mails).toHaveLength(3);
     expect(mails[0]).toMatchObject({
