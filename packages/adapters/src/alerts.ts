@@ -19,7 +19,6 @@ export const ownerAlertKinds = [
   'document_cleanup_stuck',
   'job_queue_stuck',
   'error_rate_spike',
-  'catalogue_sync_failed',
   'scheduler_not_started',
   'synthetic_check_recovered',
   'automation_backlog',
@@ -75,8 +74,6 @@ function alertSubject(kind: OwnerAlertKind): string {
       return 'GT Sales CRM: failed job queue is not draining';
     case 'error_rate_spike':
       return 'GT Sales CRM: error rate spike detected';
-    case 'catalogue_sync_failed':
-      return 'GT Sales CRM: catalogue sync is failing';
     case 'scheduler_not_started':
       return 'GT Sales CRM: background scheduler did not start';
     case 'automation_backlog':
