@@ -629,7 +629,12 @@ Reference client: `lib/crm.ts` in the CanadaWide repository.
   repository records no flow switched on in production.
 - **Backups** run every night (RUNBOOKS/backup.md). A tombstoned file's purged
   object failed the run from 14 to 16 Nov 2026 (no restore point for those
-  days); fixed on 16 Nov.
+  days); fixed on 16 Nov. The document list is read from the dump itself
+  (#86), and a document the snapshot holds as available but storage no longer
+  has leaves the run green with a warning (`missingObjects` in the manifest,
+  the `backup_completed` line and the heartbeat, and one owner alert
+  `backup_objects_missing`) instead of failing it. The backup workflow now
+  reads the monitor's `OWNER_ALERT_*` and `RESEND_*` secrets for that alert.
 
 ### 3.2 Merged but not applied or switched on
 

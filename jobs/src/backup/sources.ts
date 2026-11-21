@@ -1,11 +1,12 @@
 import { signS3Request, type S3SigningConfig } from '@gt-sales/adapters';
 
 import { runOrThrow, type RunCommand } from '../archive/command.js';
+import { readCopyTable } from './copy-rows.js';
 import { APP_SCHEMAS, parseConnectionUrl, pgConnectionEnv, type PgConnection } from './pg-dump.js';
 
 /**
  * The backup's sources besides the dump itself (pg-dump.ts): the list of
- * document objects the database references, a reader for those objects in the
+ * document objects the dumped rows reference, a reader for those objects in the
  * project's Storage bucket, and the completeness guard that proves the dump
  * role can read every table before anything is exported. Production
  * implementations shell to `psql` (as `backup_reader`, connection in PG*
@@ -28,7 +29,7 @@ function outputLines(text: string): string[] {
   return text.split(/\r?\n/).filter((line) => line.trim() !== '');
 }
 
-// --- Referenced-object manifest ----------------------------------------------
+// --- Referenced objects, read from the dump itself ------------------------------
 
 export interface ReferencedObject {
   workspaceId: string;
@@ -37,95 +38,75 @@ export interface ReferencedObject {
   checksumSha256: string;
   sizeBytes: number;
   /**
-   * The file row is tombstoned (`status = 'deleted'`). Some deletes purge the
-   * object on purpose (a customer replacing a held change-request upload,
-   * abandoned-lead erasure) while the row and its revisions keep the key, so
-   * for these rows only a missing object is a purge, not a lost document.
+   * The file row is tombstoned (`status = 'deleted'`) in the dump. Some deletes
+   * purge the object on purpose (a customer replacing a held change-request
+   * upload, abandoned-lead erasure) while the row and its revisions keep the
+   * key, so for these rows only a missing object is a purge, not a lost
+   * document.
    */
   fileDeleted?: boolean;
 }
 
-export interface ReferencedObjectManifestSource {
-  listReferencedObjects(): Promise<ReferencedObject[]>;
-}
-
-/**
- * Every object a file row or a retained revision points at. Restriction or
- * tombstoning can happen after the dump; a retained verified object still
- * belongs to that snapshot, while staging and candidate keys do not. Rows are
- * not filtered on their checksum: one whose checksum cannot be verified must
- * fail the backup, never be skipped. The last column says whether the file is
- * tombstoned, which only changes how a missing object is judged (run.ts).
- */
-export const REFERENCED_OBJECTS_QUERY = `
-  select workspace_id, bucket, object_key, checksum_sha256, size_bytes,
-    status = 'deleted'
-  from app.files where object_key is not null
-  union
-  select r.workspace_id, f.bucket, r.object_key, r.checksum_sha256, r.size_bytes,
-    f.status = 'deleted'
-  from app.file_revisions r join app.files f
-    on f.workspace_id = r.workspace_id and f.id = r.file_id
-`;
-
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 const SIZE = /^\d+$/;
 
-export class PsqlReferencedObjectManifestSource implements ReferencedObjectManifestSource {
-  private readonly connection: PgConnection;
+/**
+ * Every object a dumped `app.files` row or retained `app.file_revisions` row
+ * points at, read from the data dump itself, so the list and its deleted
+ * flags are the same snapshot as the database the archive holds (#86). A
+ * second read of the live database after the dump would see files deleted
+ * meanwhile and count their missing objects as purges. Rows are not filtered
+ * on their checksum: one whose checksum or size cannot be verified must fail
+ * the backup, never be skipped. A tombstoned file stays in the list; the flag
+ * only changes how a missing object is judged (run.ts).
+ */
+export function referencedObjectsFromDump(dataSql: string): ReferencedObject[] {
+  const files = readCopyTable(dataSql, 'app.files');
+  if (!files) throw new Error('backup_dump_missing_table:app.files');
+  const revisions = readCopyTable(dataSql, 'app.file_revisions') ?? [];
+  const byId = new Map<string, Record<string, string | null>>();
+  for (const file of files) byId.set(`${file['workspace_id']}/${file['id']}`, file);
 
-  constructor(
-    dbUrl: string,
-    private readonly run: RunCommand,
-  ) {
-    this.connection = parseConnectionUrl(dbUrl);
+  const objects = new Map<string, ReferencedObject>();
+  const add = (
+    workspaceId: string | null | undefined,
+    file: Record<string, string | null> | undefined,
+    row: Record<string, string | null>,
+  ) => {
+    const objectKey = row['object_key'] ?? '';
+    const checksumSha256 = row['checksum_sha256'] ?? '';
+    const size = row['size_bytes'] ?? '';
+    const bucket = file?.['bucket'] ?? '';
+    if (
+      !workspaceId ||
+      !file ||
+      !bucket ||
+      !objectKey ||
+      !SHA256_HEX.test(checksumSha256) ||
+      !SIZE.test(size)
+    ) {
+      throw new Error(`malformed_referenced_object_row:${workspaceId ?? ''}/${objectKey}`);
+    }
+    const object: ReferencedObject = {
+      workspaceId,
+      bucket,
+      objectKey,
+      checksumSha256,
+      sizeBytes: Number(size),
+      fileDeleted: file['status'] === 'deleted',
+    };
+    const key = JSON.stringify(object);
+    if (!objects.has(key)) objects.set(key, object);
+  };
+  for (const file of files) {
+    if (file['object_key'] === null || file['object_key'] === undefined) continue;
+    add(file['workspace_id'], file, file);
   }
-
-  async listReferencedObjects(): Promise<ReferencedObject[]> {
-    const text = await psqlQuery(this.connection, this.run, [
-      '--field-separator',
-      '\t',
-      '--command',
-      REFERENCED_OBJECTS_QUERY,
-    ]);
-    return outputLines(text).map((line) => {
-      const fields = line.split('\t');
-      const [
-        workspaceId = '',
-        bucket = '',
-        objectKey = '',
-        checksumSha256 = '',
-        size = '',
-        deleted = '',
-      ] = fields;
-      if (
-        fields.length !== 6 ||
-        !workspaceId ||
-        !bucket ||
-        !objectKey ||
-        !SHA256_HEX.test(checksumSha256) ||
-        !SIZE.test(size) ||
-        (deleted !== 't' && deleted !== 'f')
-      ) {
-        throw new Error(`malformed_referenced_object_row:${workspaceId}/${objectKey}`);
-      }
-      return {
-        workspaceId,
-        bucket,
-        objectKey,
-        checksumSha256,
-        sizeBytes: Number(size),
-        fileDeleted: deleted === 't',
-      };
-    });
+  for (const revision of revisions) {
+    const workspaceId = revision['workspace_id'];
+    add(workspaceId, byId.get(`${workspaceId}/${revision['file_id']}`), revision);
   }
-}
-
-export class FakeReferencedObjectManifestSource implements ReferencedObjectManifestSource {
-  constructor(private readonly objects: ReferencedObject[]) {}
-  async listReferencedObjects(): Promise<ReferencedObject[]> {
-    return this.objects;
-  }
+  return [...objects.values()];
 }
 
 // --- Storage source reader (get only; the source bucket is never the archive) --

@@ -28,6 +28,30 @@ The alert on its own is not an incident: no data is lost, the newest restore
 point is just older than it should be. Do not stop the backend or start a
 restore because of it.
 
+## Backup completed without some documents
+
+The nightly Backup itself sends `backup_objects_missing` ("backup completed
+without some documents") when it finished green but could not copy documents
+its snapshot holds as available (#86). The detail is
+`<deployment>:<run id>:missing_objects:<count>:<labels>`, each label
+`documents/<workspace id>/<object key>`; the run's `backup_completed` line
+(a warning) has the same, and the encrypted manifest lists every one in
+`missingObjects`. The restore point is good for everything else; those
+documents are not in it.
+
+1. Most often a member deleted or replaced a document while the backup was
+   running: the object was purged after the dump. Look the keys up as
+   `postgres` (`select id, status, deleted_at from app.files where
+object_key = '<key>'`). A row that is now `deleted` needs nothing: the next
+   night's run sees it tombstoned and counts it as purged, and the warning
+   does not repeat.
+2. A row still `available` whose object is gone is a lost document. It stays
+   in every night's warning until it is fixed. Tell the developer; the
+   customer may need to send it again. Never delete the row to silence the
+   warning before that is decided.
+3. Before a restore from that run, note the missing documents (restore.md,
+   "Read the report").
+
 ## Response
 
 1. **Open the failed Backup monitor run** (GitHub → Actions → Backup monitor)
@@ -40,7 +64,7 @@ restore because of it.
    | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
    | `<NAME> is required`                                                            | A secret is missing in the `backup-gt-sales` environment ([backup.md](backup.md) step 6).                                                                                                                                                                                                                                                                            |
    | `backup_source_unreadable:<n>_tables`                                           | `backup_reader` cannot fully read the tables or sequences listed in `tables` in the same line: usually a new `public` table without the grant or read policy, a schema it has no `USAGE` on, a restrictive policy that applies to everyone, or an `auth` table. Grant it by hand (below), or set `BACKUP_AUTH_DATA=skip` for `auth` ([backup.md](backup.md) step 5). |
-   | `backup_incomplete:<n>_objects`                                                 | A document a file row points at is missing or changed in storage (`missingOrMismatchedObjects` in the same line). Usually an object deleted while its row is not tombstoned ([backup.md](backup.md) step 8): fix the rows. A missing object of a `deleted` row is counted as purged and never fails the run.                                                         |
+   | `backup_incomplete:<n>_objects`                                                 | A document a file row points at is changed in storage: its size or SHA-256 differs (`missingOrMismatchedObjects` in the same line). Tell the developer. A missing object no longer fails the run: it is counted as purged (a `deleted` row) or warned about (`backup_objects_missing`, above).                                                                       |
    | `backup_upload_incomplete:<n>_keys`                                             | After the upload, B2's listing did not show the keys in `missingKeys`. Run Backup again; if it repeats, check the writer key still has `listFiles` and `writeFiles` on this bucket ([backup.md](backup.md) step 3).                                                                                                                                                  |
    | `age_failed:<code>:…`                                                           | `age` could not encrypt: the `RECOVERY_AGE_RECIPIENT` secret is not a valid `age1…` recipient (a private key pasted by mistake must be treated as leaked: make a new key pair, [backup.md](backup.md) step 4).                                                                                                                                                       |
    | `storage_source_bucket_mismatch:<bucket>`                                       | A file row names a bucket other than `SOURCE_STORAGE_BUCKET`: the secret is wrong (it is `documents`), or a row points at another bucket. Tell the developer before changing any row.                                                                                                                                                                                |

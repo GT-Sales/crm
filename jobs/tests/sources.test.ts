@@ -3,12 +3,10 @@ import { describe, expect, it } from 'vitest';
 
 import type { RunCommand, RunCommandInput } from '../src/archive/command.js';
 import {
-  FakeReferencedObjectManifestSource,
   FakeSourceCompletenessGuard,
   FakeStorageSourceReader,
-  PsqlReferencedObjectManifestSource,
   PsqlSourceCompletenessGuard,
-  REFERENCED_OBJECTS_QUERY,
+  referencedObjectsFromDump,
   S3StorageSourceReader,
   UNREADABLE_TABLES_QUERY,
   unreadableTablesQuery,
@@ -49,17 +47,36 @@ function expectConnectionOnlyInEnv(call: RecordedCall | undefined) {
   });
 }
 
-describe('PsqlReferencedObjectManifestSource', () => {
-  it('PsqlReferencedObjectManifestSource parses tab-separated rows and the exact query', async () => {
-    const { run, calls } = recordingRun(
-      `w1\tdocuments\tleads/abc.pdf\t${SUM_A}\t1024\tf\r\nw2\tdocuments\tleads/def.png\t${SUM_B}\t2048\tt\r\n`,
-    );
-    const objects = await new PsqlReferencedObjectManifestSource(
-      DB_URL,
-      run,
-    ).listReferencedObjects();
+const FILES_COPY =
+  'COPY "app"."files" ("id", "workspace_id", "record_type", "bucket", "staging_key", "candidate_key", "object_key", "size_bytes", "checksum_sha256", "status") FROM stdin;';
+const REVISIONS_COPY =
+  'COPY "app"."file_revisions" ("id", "workspace_id", "file_id", "revision", "object_key", "size_bytes", "checksum_sha256") FROM stdin;';
 
-    expect(objects).toEqual([
+function dumpWith(files: string[], revisions: string[] = []): string {
+  return [
+    'SET row_security = on;',
+    FILES_COPY,
+    ...files,
+    '\\.',
+    REVISIONS_COPY,
+    ...revisions,
+    '\\.',
+    '',
+  ].join('\n');
+}
+
+describe('referencedObjectsFromDump', () => {
+  it('lists every object a dumped file row or revision points at, from the dump itself (#86)', () => {
+    const sql = dumpWith(
+      [
+        `f1\tw1\tlead\tdocuments\tstaging/w1/s1\tcandidate/w1/c1\tleads/abc.pdf\t1024\t${SUM_A}\tavailable`,
+        `f2\tw2\tlead\tdocuments\tstaging/w2/s2\t\\N\tleads/def.png\t2048\t${SUM_B}\tdeleted`,
+        // Still uploading: no verified object yet, so nothing to copy.
+        `f3\tw1\tlead\tdocuments\tstaging/w1/s3\t\\N\t\\N\t\\N\t\\N\tuploading`,
+      ],
+      [`r1\tw1\tf1\t1\tleads/old.pdf\t512\t${SUM_B}`],
+    );
+    expect(referencedObjectsFromDump(sql)).toEqual([
       {
         workspaceId: 'w1',
         bucket: 'documents',
@@ -76,79 +93,57 @@ describe('PsqlReferencedObjectManifestSource', () => {
         sizeBytes: 2048,
         fileDeleted: true,
       },
+      {
+        workspaceId: 'w1',
+        bucket: 'documents',
+        objectKey: 'leads/old.pdf',
+        checksumSha256: SUM_B,
+        sizeBytes: 512,
+        fileDeleted: false,
+      },
     ]);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.args).toEqual([
-      '--tuples-only',
-      '--no-align',
-      '--field-separator',
-      '\t',
-      '--command',
-      REFERENCED_OBJECTS_QUERY,
-    ]);
-    expectConnectionOnlyInEnv(calls[0]);
-    expect(REFERENCED_OBJECTS_QUERY).toContain('from app.files where object_key is not null');
-    expect(REFERENCED_OBJECTS_QUERY).toContain('from app.file_revisions r join app.files f');
-    expect(REFERENCED_OBJECTS_QUERY).not.toContain('checksum_sha256 is not null');
-    // Tombstoned rows stay in the list; the flag only changes how a missing object is judged.
-    expect(REFERENCED_OBJECTS_QUERY).not.toContain("status <> 'deleted'");
-    expect(REFERENCED_OBJECTS_QUERY).toContain("f.status = 'deleted'");
   });
 
-  it('PsqlReferencedObjectManifestSource throws malformed_referenced_object_row on an empty checksum', async () => {
-    const { run } = recordingRun(
-      `w1\tdocuments\tleads/ok.pdf\t${SUM_A}\t1\tf\nw1\tdocuments\tleads/abc.pdf\t\t1024\tf\n`,
+  it('lists an object a file row and its revision share once', () => {
+    const sql = dumpWith(
+      [`f1\tw1\tlead\tdocuments\ts\t\\N\tleads/abc.pdf\t1024\t${SUM_A}\tavailable`],
+      [`r1\tw1\tf1\t1\tleads/abc.pdf\t1024\t${SUM_A}`],
     );
-    await expect(
-      new PsqlReferencedObjectManifestSource(DB_URL, run).listReferencedObjects(),
-    ).rejects.toThrow(new Error('malformed_referenced_object_row:w1/leads/abc.pdf'));
+    expect(referencedObjectsFromDump(sql)).toHaveLength(1);
   });
 
-  it('rejects a checksum that is not 64 hex characters, a bad size, a bad deleted flag and a short row', async () => {
+  it('decodes COPY escapes in a key', () => {
+    const sql = dumpWith([
+      `f1\tw1\tlead\tdocuments\ts\t\\N\tleads/a\\\\b\\tc.pdf\t1\t${SUM_A}\tavailable`,
+    ]);
+    expect(referencedObjectsFromDump(sql)[0]?.objectKey).toBe('leads/a\\b\tc.pdf');
+  });
+
+  it('fails on a referenced row whose checksum or size cannot be verified, never skipping it', () => {
     for (const row of [
-      `w1\tdocuments\tleads/abc.pdf\tdeadbeef\t1024\tf`,
-      `w1\tdocuments\tleads/abc.pdf\t${'g'.repeat(64)}\t1024\tf`,
-      `w1\tdocuments\tleads/abc.pdf\t${SUM_A}\t\tf`,
-      `w1\tdocuments\tleads/abc.pdf\t${SUM_A}\t-1\tf`,
-      `w1\tdocuments\tleads/abc.pdf\t${SUM_A}\t1024`,
-      `w1\tdocuments\tleads/abc.pdf\t${SUM_A}\t1024\tyes`,
-      `w1\tdocuments\tleads/abc.pdf`,
+      `f1\tw1\tlead\tdocuments\ts\t\\N\tleads/abc.pdf\t1024\t\\N\tavailable`,
+      `f1\tw1\tlead\tdocuments\ts\t\\N\tleads/abc.pdf\t1024\tdeadbeef\tavailable`,
+      `f1\tw1\tlead\tdocuments\ts\t\\N\tleads/abc.pdf\t\\N\t${SUM_A}\tavailable`,
+      `f1\tw1\tlead\tdocuments\ts\t\\N\tleads/abc.pdf\t-1\t${SUM_A}\tavailable`,
     ]) {
-      const { run } = recordingRun(`${row}\n`);
-      await expect(
-        new PsqlReferencedObjectManifestSource(DB_URL, run).listReferencedObjects(),
-      ).rejects.toThrow(new Error('malformed_referenced_object_row:w1/leads/abc.pdf'));
+      expect(() => referencedObjectsFromDump(dumpWith([row]))).toThrow(
+        new Error('malformed_referenced_object_row:w1/leads/abc.pdf'),
+      );
     }
   });
 
-  it('PsqlReferencedObjectManifestSource returns [] on empty output', async () => {
-    const { run } = recordingRun('');
-    expect(
-      await new PsqlReferencedObjectManifestSource(DB_URL, run).listReferencedObjects(),
-    ).toEqual([]);
+  it('fails on a revision whose file is not in the dump, and on a dump without the files table', () => {
+    expect(() =>
+      referencedObjectsFromDump(dumpWith([], [`r1\tw1\tf9\t1\tleads/x.pdf\t1\t${SUM_A}`])),
+    ).toThrow(new Error('malformed_referenced_object_row:w1/leads/x.pdf'));
+    expect(() => referencedObjectsFromDump('SET row_security = on;\n')).toThrow(
+      new Error('backup_dump_missing_table:app.files'),
+    );
   });
 
-  it('fails with the psql error and no password when psql exits non-zero', async () => {
-    const run: RunCommand = async () => ({
-      stdout: new Uint8Array(),
-      stderr: `psql: error: connection to ${DB_URL} failed`,
-      exitCode: 2,
-    });
-    const error = await new PsqlReferencedObjectManifestSource(DB_URL, run)
-      .listReferencedObjects()
-      .catch((caught: unknown) => caught);
-    expect(String(error)).toContain('psql_failed:2:');
-    expect(String(error)).not.toContain('s3cretPassw0rd');
-  });
-});
-
-describe('FakeReferencedObjectManifestSource', () => {
-  it('returns exactly the injected fixture', async () => {
-    const objects = [
-      { workspaceId: 'w1', bucket: 'b', objectKey: 'k', checksumSha256: SUM_A, sizeBytes: 1 },
-    ];
-    expect(await new FakeReferencedObjectManifestSource(objects).listReferencedObjects()).toBe(
-      objects,
+  it('fails on a row with the wrong number of fields', () => {
+    expect(() => referencedObjectsFromDump(dumpWith([`f1\tw1\tlead`]))).toThrow(
+      'copy_row_malformed:app.files',
     );
   });
 });

@@ -195,8 +195,14 @@ Every file in it is encrypted to the recovery recipient and stored as
 - `history_schema.sql` and `history_data.sql`: Supabase's migration history
   (`supabase_migrations`), unless `BACKUP_HISTORY=skip`.
 - `objects/<workspace>/<key>`: every document an `app.files` row or a kept
-  file revision points at, in the `documents` bucket, checked against its
-  recorded size and SHA-256. One missing or changed document fails the run.
+  file revision in `data.sql` points at, in the `documents` bucket, checked
+  against its recorded size and SHA-256. The list is read from the dump
+  itself, so it and the database in the archive are one snapshot (#86). A
+  changed document fails the run. A missing one does not: a file the dump
+  holds as `deleted` counts as purged (`counts.purgedObjects`), and a file it
+  holds as available whose object storage no longer has (staff deleted it
+  while the run was copying, or it was lost) leaves the run green **with a
+  warning** (below).
 - `manifest.json`: written last. It lists every file with its size and
   SHA-256, the row count of every table, the tool versions and what the run
   left out (`exclusions`).
@@ -204,6 +210,26 @@ Every file in it is encrypted to the recovery recipient and stored as
 After all of that is uploaded and listed back, the run overwrites
 `heartbeat/latest.json` (not encrypted; ids and counts only), which is what
 the monitor reads.
+
+**A run that completes with missing documents** (owner decision, #86) is
+still a restore point for everything else. It says so four ways, with the
+count and the documents' labels (`<bucket>/<workspace id>/<object key>`,
+opaque server-generated ids, never a file name or anything a customer typed):
+
+- the manifest's `counts.missingObjects` and `missingObjects` (every label;
+  only the recovery key opens it);
+- the run log's `backup_completed` line, written as a warning, with
+  `missingObjectCount` and up to 20 labels in `missingObjects`;
+- the heartbeat's `missingObjectCount`;
+- one owner alert `backup_objects_missing` (subject "backup completed without
+  some documents", detail
+  `<deployment>:<run id>:missing_objects:<count>:<labels>`), sent through the
+  monitor's alert secrets in the same `backup-gt-sales` environment. A failed
+  alert is logged (`backup_alert_delivery_failed`) and the run stays green.
+
+What to do about the warning is in
+[backup-alert-response.md](backup-alert-response.md), "Backup completed
+without some documents".
 
 Not backed up, by design: the `storage.objects` table itself (a restore
 recreates it by uploading the documents again), Supabase project settings,
@@ -379,12 +405,13 @@ create `backup-gt-sales`:
 | `SOURCE_STORAGE_ENDPOINT`, `SOURCE_STORAGE_REGION`, `SOURCE_STORAGE_BUCKET`    | `https://xykrphbgpwisqacpyeiv.storage.supabase.co/storage/v1/s3`, `ap-south-1`, `documents`.                                                                                                                                                     |
 | `SOURCE_STORAGE_ACCESS_KEY_ID`, `SOURCE_STORAGE_SECRET_ACCESS_KEY`             | The "backup" Storage S3 key from step 5.                                                                                                                                                                                                         |
 | `SUPABASE_PROJECT_REF`                                                         | `xykrphbgpwisqacpyeiv`.                                                                                                                                                                                                                          |
-| `OWNER_ALERT_EMAIL`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME` | Where the monitor's alert goes and who sends it. Without them an alert is only logged.                                                                                                                                                           |
+| `OWNER_ALERT_EMAIL`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME` | Where the monitor's alert, and the backup's missing-documents warning, go and who sends them. Without them an alert is only logged.                                                                                                              |
 | Optional                                                                       | `BACKUP_HISTORY`, `BACKUP_MAX_SNAPSHOT_BYTES`, `BACKUP_MONITOR_MAX_AGE_SECONDS`, `RETENTION_DAILY_POINTS`, `RETENTION_MONTHLY_POINTS`, `RETENTION_GRACE_SECONDS`, `SENTRY_DSN`: ENV.md. Leave `BACKUP_AUTH_DATA` unset (the matrix says `skip`). |
 
 The repository is public, so its Actions logs are too. The jobs log ids,
 counts, table names and object keys only, never a value or a row. Object
-keys may appear in a `backup_failed` line; they are opaque server-generated
+keys may appear in a `backup_failed` line or a warning `backup_completed`
+line; they are opaque server-generated
 ids (`candidate/<workspace id>/<random token>`, `<run id>/<artifact>.enc`),
 never a filename or anything a customer typed.
 
@@ -423,11 +450,11 @@ Customers ask through the website's contact page, and a developer deletes in
 the database (merge decision 18, docs/PLAN.md §1.1). For documents the order matters:
 **delete or null the `app.files` rows (and their `app.file_revisions`) first,
 then the storage objects; never the other way round.** The backup copies every
-object a row points at and fails the whole run when one is missing
-(`backup_incomplete`), so an object deleted before its row breaks every
-nightly backup until the row is fixed. The one exception is a row already
-tombstoned (`app.files.status = 'deleted'`): its missing object counts as
-purged (`counts.purgedObjects` in the manifest) and the run goes on. The app
+object a dumped row points at, so an object deleted before its row is
+tombstoned leaves every nightly backup with a `backup_objects_missing`
+warning (below the run stays green, #86) until the row is fixed. A row
+already tombstoned (`app.files.status = 'deleted'`) is no warning: its
+missing object counts as purged (`counts.purgedObjects` in the manifest). The app
 itself purges that way when a customer replaces a held change-request upload
 and when abandoned-lead erasure runs; until 16 Nov 2026 that broke the backup
 (14–16 Nov had no restore point). So tombstone the row first, then delete the

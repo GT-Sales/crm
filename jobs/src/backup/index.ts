@@ -24,6 +24,7 @@ export {
   BackupTooLargeError,
   BackupUploadVerificationError,
   DEFAULT_MAX_SNAPSHOT_BYTES,
+  MAX_LISTED_MISSING_OBJECTS,
   createBackupRunId,
   runBackup,
   type BackupRunDependencies,
@@ -31,18 +32,15 @@ export {
 } from './run.js';
 
 export {
-  FakeReferencedObjectManifestSource,
   FakeSourceCompletenessGuard,
   FakeStorageSourceReader,
-  PsqlReferencedObjectManifestSource,
   PsqlSourceCompletenessGuard,
-  REFERENCED_OBJECTS_QUERY,
+  referencedObjectsFromDump,
   S3StorageSourceReader,
   UNREADABLE_TABLES_QUERY,
   unreadableTablesQuery,
   type ReferencedObject,
   type SourceCompletenessGuardOptions,
-  type ReferencedObjectManifestSource,
   type SourceCompletenessGuard,
   type StorageSourceReader,
 } from './sources.js';

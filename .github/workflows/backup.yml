@@ -114,6 +114,15 @@ jobs:
           BACKUP_AUTH_DATA: ${{ secrets.BACKUP_AUTH_DATA || matrix.auth_data }}
           BACKUP_HISTORY: ${{ secrets.BACKUP_HISTORY }}
           BACKUP_MAX_SNAPSHOT_BYTES: ${{ secrets.BACKUP_MAX_SNAPSHOT_BYTES }}
+          # The owner alert for a run that completed without some documents
+          # (backup_objects_missing, #86); the monitor's own secrets. Unset,
+          # the warning is only logged.
+          OWNER_ALERT_EMAIL: ${{ secrets.OWNER_ALERT_EMAIL }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          RESEND_FROM_NAME: ${{ secrets.RESEND_FROM_NAME }}
+          OWNER_ALERT_WEBHOOK_URL: ${{ secrets.OWNER_ALERT_WEBHOOK_URL }}
+          OWNER_ALERT_WEBHOOK_SECRET: ${{ secrets.OWNER_ALERT_WEBHOOK_SECRET }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           RELEASE_SHA: ${{ github.sha }}
           DEPLOYMENT_ENV: production

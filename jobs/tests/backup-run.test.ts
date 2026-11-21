@@ -18,11 +18,11 @@ import {
   BackupUploadVerificationError,
   createBackupRunId,
   DEFAULT_MAX_SNAPSHOT_BYTES,
+  MAX_LISTED_MISSING_OBJECTS,
   runBackup,
   type BackupRunDependencies,
 } from '../src/backup/run.js';
 import {
-  FakeReferencedObjectManifestSource,
   FakeSourceCompletenessGuard,
   FakeStorageSourceReader,
   type StorageSourceReader,
@@ -32,17 +32,52 @@ const RUN_ID = 'run-2026-10-29T06-17-00-000Z-test';
 const encode = (text: string) => new TextEncoder().encode(text);
 const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
-const DATA_SQL = [
-  'SET row_security = on;',
-  'COPY "app"."leads" ("id", "name") FROM stdin;',
-  '1\tAda',
-  '2\tGrace',
-  '3\tLinus',
-  '\\.',
-  'COPY "app"."files" ("id") FROM stdin;',
-  '\\.',
-  '',
-].join('\n');
+const DOCUMENT = encode('customer-document-bytes');
+
+/** A file row as the dump holds it; the backup reads its document list from these (#86). */
+interface DumpedFile {
+  workspaceId: string;
+  objectKey: string;
+  checksumSha256: string;
+  sizeBytes: number;
+  status?: string;
+}
+
+const PASSPORT: DumpedFile = {
+  workspaceId: 'w1',
+  objectKey: 'docs/passport.pdf',
+  checksumSha256: sha256Hex(DOCUMENT),
+  sizeBytes: DOCUMENT.byteLength,
+};
+
+function dataSql(files: readonly DumpedFile[] = [PASSPORT]): string {
+  return [
+    'SET row_security = on;',
+    'COPY "app"."leads" ("id", "name") FROM stdin;',
+    '1\tAda',
+    '2\tGrace',
+    '3\tLinus',
+    '\\.',
+    'COPY "app"."files" ("id", "workspace_id", "bucket", "object_key", "size_bytes", "checksum_sha256", "status") FROM stdin;',
+    ...files.map((file, index) =>
+      [
+        `f${index + 1}`,
+        file.workspaceId,
+        'documents',
+        file.objectKey,
+        String(file.sizeBytes),
+        file.checksumSha256,
+        file.status ?? 'available',
+      ].join('\t'),
+    ),
+    '\\.',
+    'COPY "app"."file_revisions" ("id", "workspace_id", "file_id", "object_key", "size_bytes", "checksum_sha256") FROM stdin;',
+    '\\.',
+    '',
+  ].join('\n');
+}
+
+const DATA_SQL = dataSql();
 
 const BASE_EXCLUSIONS = [
   'storage_objects_metadata',
@@ -53,11 +88,11 @@ const BASE_EXCLUSIONS = [
   'provider_account_mfa',
 ];
 
-function dump(): DatabaseDumpArtifacts {
+function dump(files?: readonly DumpedFile[]): DatabaseDumpArtifacts {
   return {
     roles: encode('roles'),
     schema: encode('schema'),
-    data: encode(DATA_SQL),
+    data: encode(dataSql(files)),
     historySchema: encode('history-schema'),
     historyData: encode('history-data'),
   };
@@ -111,11 +146,11 @@ function recordingWriter(writer: ArchiveWriter) {
   return { writer: recorded, puts };
 }
 
-function setup() {
+function setup(files?: readonly DumpedFile[]) {
   const backend = new InMemoryArchiveBackend();
   const { publicKeyBase64, privateKeyBase64 } = generateTestRecipientKeyPair();
-  const document = encode('customer-document-bytes');
-  const { database, calls } = spyDatabase();
+  const document = DOCUMENT;
+  const { database, calls } = spyDatabase(dump(files));
   const { storageSource, reads } = countingStorage(
     new Map([['documents/workspaces/w1/docs/passport.pdf', document]]),
   );
@@ -127,15 +162,6 @@ function setup() {
     encryptor: new TestEnvelopeEncryptor(publicKeyBase64),
     archiveWriter: writer,
     database,
-    referencedObjects: new FakeReferencedObjectManifestSource([
-      {
-        workspaceId: 'w1',
-        bucket: 'documents',
-        objectKey: 'docs/passport.pdf',
-        checksumSha256: sha256Hex(document),
-        sizeBytes: document.byteLength,
-      },
-    ]),
     storageSource,
     guard: new FakeSourceCompletenessGuard([]),
     sourceIds: { supabaseProjectRef: 'proj-abc' },
@@ -184,7 +210,9 @@ describe('runBackup', () => {
       artifactCount: 6,
       referencedObjectCount: 1,
       purgedObjectCount: 0,
-      rowCountTables: 2,
+      missingObjectCount: 0,
+      missingObjects: [],
+      rowCountTables: 3,
       durationMs: 0,
       heartbeatPublished: true,
     });
@@ -213,8 +241,9 @@ describe('runBackup', () => {
     expect(manifest.toolVersions).toEqual({ age: '1.2.1', pgDump: '17.6' });
     expect(manifest.artifacts.map((artifact) => artifact.name)).toEqual(artifactNames);
     expect(manifest.rowCounts).toEqual(countCopyRows(DATA_SQL));
-    expect(manifest.rowCounts).toEqual({ 'app.leads': 3, 'app.files': 0 });
-    expect(manifest.counts).toEqual({ referencedObjects: 1, purgedObjects: 0 });
+    expect(manifest.rowCounts).toEqual({ 'app.leads': 3, 'app.files': 1, 'app.file_revisions': 0 });
+    expect(manifest.counts).toEqual({ referencedObjects: 1, purgedObjects: 0, missingObjects: 0 });
+    expect(manifest.missingObjects).toBeUndefined();
     expect(manifest.exclusions).toEqual(BASE_EXCLUSIONS);
 
     // Every artifact is stored encrypted and decrypts to what the manifest describes.
@@ -242,6 +271,7 @@ describe('runBackup', () => {
         verified: true,
         manifestKey: `${RUN_ID}/manifest.json.enc`,
         artifactCount: 6,
+        missingObjectCount: 0,
       },
     });
   });
@@ -275,44 +305,82 @@ describe('runBackup', () => {
     expect(backend.size()).toBe(0);
   });
 
-  it('fails with backup_incomplete naming the missing object and publishes no heartbeat', async () => {
-    const { backend, deps } = setup();
+  it('completes with a warning naming a document the snapshot lists that storage no longer has (#86)', async () => {
+    const { backend, deps, decryptor } = setup();
     deps.storageSource = new FakeStorageSourceReader(new Map());
-    const error = await runBackup(deps).catch((caught: unknown) => caught);
-    expect(error).toBeInstanceOf(BackupIncompleteError);
-    expect(String(error)).toContain('backup_incomplete:1_objects');
-    if (!(error instanceof BackupIncompleteError)) throw new Error('unreachable');
-    expect(error.missingOrMismatchedObjects).toEqual(['documents/docs/passport.pdf']);
-    expect(backend.size()).toBe(0);
-    expect((await readLatestHeartbeat(backend.asReader())).status).toBe('missing');
+    const summary = await runBackup(deps);
+    expect(summary.missingObjects).toEqual(['documents/w1/docs/passport.pdf']);
+    expect(summary.purgedObjectCount).toBe(0);
+    const manifest = await decryptManifest(backend, decryptor);
+    expect(manifest.counts).toEqual({ referencedObjects: 1, purgedObjects: 0, missingObjects: 1 });
+    expect(manifest.missingObjects).toEqual(['documents/w1/docs/passport.pdf']);
+    expect(manifest.artifacts.map((artifact) => artifact.name)).not.toContain(
+      'objects/w1/docs/passport.pdf',
+    );
+    const heartbeat = await readLatestHeartbeat(backend.asReader());
+    expect(heartbeat).toMatchObject({ status: 'ok', heartbeat: { missingObjectCount: 1 } });
+  });
+
+  it('judges a document deleted during the backup by the dump, not by a later read (#86)', async () => {
+    // The dump captured the file as available; staff then deleted it, its row
+    // was tombstoned and its object purged before the copy reached it. A later
+    // listing would say "deleted" and hide the gap as a purge; the snapshot
+    // says it was there, so the run warns about it instead.
+    const removed: DumpedFile = {
+      workspaceId: 'w1',
+      objectKey: 'docs/removed-mid-run.pdf',
+      checksumSha256: sha256Hex(encode('gone')),
+      sizeBytes: 4,
+    };
+    const { deps } = setup([PASSPORT, removed]);
+    const summary = await runBackup(deps);
+    expect(summary.referencedObjectCount).toBe(2);
+    expect(summary.purgedObjectCount).toBe(0);
+    expect(summary.missingObjects).toEqual(['documents/w1/docs/removed-mid-run.pdf']);
+
+    // And a file the dump already holds as deleted is a purge, not a gap,
+    // whatever happened to its row after the dump.
+    const { deps: tombstoned } = setup([PASSPORT, { ...removed, status: 'deleted' }]);
+    const after = await runBackup(tombstoned);
+    expect(after.purgedObjectCount).toBe(1);
+    expect(after.missingObjects).toEqual([]);
+  });
+
+  it('bounds the warning list and keeps the full count', async () => {
+    const many = Array.from({ length: 60 }, (_, index) => ({
+      workspaceId: 'w1',
+      objectKey: `docs/missing-${index}.pdf`,
+      checksumSha256: sha256Hex(encode(`m${index}`)),
+      sizeBytes: 2,
+    }));
+    const { backend, deps, decryptor } = setup([PASSPORT, ...many]);
+    const summary = await runBackup(deps);
+    expect(summary.missingObjectCount).toBe(60);
+    expect(summary.missingObjects).toHaveLength(MAX_LISTED_MISSING_OBJECTS);
+    const manifest = await decryptManifest(backend, decryptor);
+    expect(manifest.counts['missingObjects']).toBe(60);
+    // The manifest, which only the recovery key opens, lists every one.
+    expect(manifest.missingObjects).toHaveLength(60);
   });
 
   it('counts a purged object of a tombstoned file and still completes the run', async () => {
     // A customer replaced a held change-request upload: the row is deleted,
     // keeps its key, and the object was removed on purpose.
-    const { backend, deps, document, decryptor } = setup();
-    deps.referencedObjects = new FakeReferencedObjectManifestSource([
+    const { backend, deps, decryptor } = setup([
+      PASSPORT,
       {
         workspaceId: 'w1',
-        bucket: 'documents',
-        objectKey: 'docs/passport.pdf',
-        checksumSha256: sha256Hex(document),
-        sizeBytes: document.byteLength,
-      },
-      {
-        workspaceId: 'w1',
-        bucket: 'documents',
         objectKey: 'docs/replaced.pdf',
         checksumSha256: sha256Hex(encode('replaced')),
         sizeBytes: 8,
-        fileDeleted: true,
+        status: 'deleted',
       },
     ]);
     const summary = await runBackup(deps);
     expect(summary.referencedObjectCount).toBe(2);
     expect(summary.purgedObjectCount).toBe(1);
     const manifest = await decryptManifest(backend, decryptor);
-    expect(manifest.counts).toEqual({ referencedObjects: 2, purgedObjects: 1 });
+    expect(manifest.counts).toEqual({ referencedObjects: 2, purgedObjects: 1, missingObjects: 0 });
     expect(manifest.artifacts.map((artifact) => artifact.name)).toContain(
       'objects/w1/docs/passport.pdf',
     );
@@ -323,16 +391,8 @@ describe('runBackup', () => {
   });
 
   it('fails with backup_incomplete when a tombstoned file keeps a different object', async () => {
-    const { backend, deps, document } = setup();
-    deps.referencedObjects = new FakeReferencedObjectManifestSource([
-      {
-        workspaceId: 'w1',
-        bucket: 'documents',
-        objectKey: 'docs/passport.pdf',
-        checksumSha256: sha256Hex(encode('something else')),
-        sizeBytes: document.byteLength,
-        fileDeleted: true,
-      },
+    const { backend, deps } = setup([
+      { ...PASSPORT, checksumSha256: sha256Hex(encode('something else')), status: 'deleted' },
     ]);
     const error = await runBackup(deps).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(BackupIncompleteError);
@@ -353,16 +413,7 @@ describe('runBackup', () => {
   });
 
   it('fails with backup_incomplete on a size mismatch', async () => {
-    const { backend, deps, document } = setup();
-    deps.referencedObjects = new FakeReferencedObjectManifestSource([
-      {
-        workspaceId: 'w1',
-        bucket: 'documents',
-        objectKey: 'docs/passport.pdf',
-        checksumSha256: sha256Hex(document),
-        sizeBytes: document.byteLength + 1,
-      },
-    ]);
+    const { backend, deps } = setup([{ ...PASSPORT, sizeBytes: PASSPORT.sizeBytes + 1 }]);
     await expect(runBackup(deps)).rejects.toBeInstanceOf(BackupIncompleteError);
     expect(backend.size()).toBe(0);
   });
@@ -382,18 +433,10 @@ describe('runBackup', () => {
   });
 
   it('fails with backup_snapshot_too_large_for_runner when a stale size hides a larger object', async () => {
-    const { backend, deps, document } = setup();
-    deps.referencedObjects = new FakeReferencedObjectManifestSource([
-      {
-        workspaceId: 'w1',
-        bucket: 'documents',
-        objectKey: 'docs/passport.pdf',
-        checksumSha256: sha256Hex(document),
-        sizeBytes: 1,
-      },
-    ]);
+    const small = [{ ...PASSPORT, sizeBytes: 1 }];
+    const { backend, deps } = setup(small);
     // The recorded size fits; the bytes actually fetched do not.
-    const limit = dumpBytes(dump()) + 1;
+    const limit = dumpBytes(dump(small)) + 1;
     await expect(runBackup({ ...deps, maxSnapshotBytes: limit })).rejects.toBeInstanceOf(
       BackupTooLargeError,
     );

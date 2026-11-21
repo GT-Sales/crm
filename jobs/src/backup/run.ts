@@ -7,17 +7,17 @@ import { publishHeartbeat, type Heartbeat } from '../archive/heartbeat.js';
 import { buildManifest, manifestArtifact, type BackupManifest } from '../archive/manifest.js';
 import { countCopyRows } from './copy-rows.js';
 import type { DatabaseExporter } from './pg-dump.js';
-import type {
-  ReferencedObjectManifestSource,
-  SourceCompletenessGuard,
-  StorageSourceReader,
+import {
+  referencedObjectsFromDump,
+  type SourceCompletenessGuard,
+  type StorageSourceReader,
 } from './sources.js';
 
 /**
  * The nightly backup of one deployment: prove the dump role can read every
- * table, dump the database as `backup_reader`, copy every document the
- * database references from the deployment's Storage bucket (checksum and size
- * verified), encrypt each artifact and then the manifest, upload them under
+ * table, dump the database as `backup_reader`, copy every document the dumped
+ * rows reference from the deployment's Storage bucket (checksum and size
+ * verified; a document gone from storage is a warning, not a failure, #86), encrypt each artifact and then the manifest, upload them under
  * `<runId>/` in the deployment's own archive bucket, verify the upload by
  * listing it, and only then publish the heartbeat the monitor watches. Any
  * failure stops the run before the heartbeat, so a broken backup is silence
@@ -53,6 +53,12 @@ export class BackupUploadVerificationError extends Error {
  */
 export const DEFAULT_MAX_SNAPSHOT_BYTES = 2 * 1024 ** 3;
 
+/**
+ * How many missing documents the run's log line, summary and owner alert name;
+ * the count is always whole, and the encrypted manifest lists every one.
+ */
+export const MAX_LISTED_MISSING_OBJECTS = 20;
+
 export class BackupTooLargeError extends Error {
   constructor(
     readonly snapshotBytes: number,
@@ -83,7 +89,6 @@ export interface BackupRunDependencies {
   encryptor: Encryptor;
   archiveWriter: ArchiveWriter;
   database: DatabaseExporter;
-  referencedObjects: ReferencedObjectManifestSource;
   storageSource: StorageSourceReader;
   guard: SourceCompletenessGuard;
   sourceIds: Record<string, string>;
@@ -101,6 +106,14 @@ export interface BackupRunSummary {
   referencedObjectCount: number;
   /** Referenced by a tombstoned file whose object was deliberately deleted. */
   purgedObjectCount: number;
+  /**
+   * Documents the snapshot holds as available whose object storage no longer
+   * had (#86): the run still succeeds, with this warning. The labels are
+   * `<bucket>/<workspace id>/<object key>`, opaque server-generated ids with
+   * no personal data, at most `MAX_LISTED_MISSING_OBJECTS` of them.
+   */
+  missingObjectCount: number;
+  missingObjects: string[];
   rowCountTables: number;
   durationMs: number;
   heartbeatPublished: true;
@@ -133,10 +146,15 @@ export async function runBackup(deps: BackupRunDependencies): Promise<BackupRunS
 
   // 3–4. The export, and the row count of every table it holds.
   const db = await deps.database.exportAll();
-  const rowCounts = countCopyRows(new TextDecoder().decode(db.data));
+  const dataSql = new TextDecoder().decode(db.data);
+  const rowCounts = countCopyRows(dataSql);
 
-  // 5. Every document object a file row or retained revision points at.
-  const referenced = await deps.referencedObjects.listReferencedObjects();
+  // 5. Every document object a dumped file row or retained revision points at,
+  // read from the dump itself: the list and its deleted flags are the same
+  // snapshot as the database in the archive (#86). A second read of the live
+  // database would see a file deleted meanwhile as tombstoned and hide its
+  // missing object as a purge.
+  const referenced = referencedObjectsFromDump(dataSql);
 
   // 6. Stop before fetching anything if the snapshot cannot fit in memory.
   const maxSnapshotBytes = deps.maxSnapshotBytes ?? DEFAULT_MAX_SNAPSHOT_BYTES;
@@ -150,17 +168,20 @@ export async function runBackup(deps: BackupRunDependencies): Promise<BackupRunS
     throw new BackupTooLargeError(declaredBytes, maxSnapshotBytes);
   }
 
-  // 7. Copy every referenced object. A snapshot is usable only when every one
-  // is present with the recorded checksum and size; never accept a partial
-  // copy. The one exception is an object that is missing while its file row
-  // is tombstoned: some deletes purge the object on purpose and keep the key
-  // on the row (a replaced change-request upload, abandoned-lead erasure), so
-  // that object is counted as purged in the manifest instead. A tombstoned
-  // file whose object is present but different still fails. The running
-  // total uses the bytes actually fetched, so a stale recorded size cannot
-  // carry the runner past its memory limit.
+  // 7. Copy every referenced object, checked against its recorded checksum
+  // and size; an object present but different fails the run. An object that
+  // is missing while its dumped file row is tombstoned is a purge: some
+  // deletes remove the object on purpose and keep the key on the row (a
+  // replaced change-request upload, abandoned-lead erasure), so it is counted
+  // as purged. An object missing while the snapshot holds its file as
+  // available (deleted after the dump, or lost) does not stop the run (owner
+  // decision, #86): the backup completes with a warning that names it in the
+  // manifest, the log line, the heartbeat's count and the owner alert, so the
+  // gap is known. The running total uses the bytes actually fetched, so a
+  // stale recorded size cannot carry the runner past its memory limit.
   const objectArtifacts = new Map<string, Uint8Array>();
   const problems: string[] = [];
+  const missing: string[] = [];
   let purgedObjects = 0;
   let heldBytes = databaseBytes;
   for (const object of referenced) {
@@ -171,7 +192,7 @@ export async function runBackup(deps: BackupRunDependencies): Promise<BackupRunS
     const label = `${object.bucket}/${object.objectKey}`;
     if (!bytes) {
       if (object.fileDeleted === true) purgedObjects += 1;
-      else problems.push(label);
+      else missing.push(`${object.bucket}/${object.workspaceId}/${object.objectKey}`);
       continue;
     }
     heldBytes += bytes.byteLength;
@@ -203,7 +224,12 @@ export async function runBackup(deps: BackupRunDependencies): Promise<BackupRunS
     toolVersions: deps.toolVersions,
     artifacts: [...artifacts.entries()].map(([name, bytes]) => manifestArtifact(name, bytes)),
     rowCounts,
-    counts: { referencedObjects: referenced.length, purgedObjects },
+    counts: {
+      referencedObjects: referenced.length,
+      purgedObjects,
+      missingObjects: missing.length,
+    },
+    ...(missing.length > 0 ? { missingObjects: missing } : {}),
     exclusions: [...BASE_EXCLUSIONS, ...(deps.exclusions ?? [])],
   });
 
@@ -237,6 +263,7 @@ export async function runBackup(deps: BackupRunDependencies): Promise<BackupRunS
     verified: true,
     manifestKey,
     artifactCount: artifacts.size,
+    missingObjectCount: missing.length,
   };
   await publishHeartbeat(deps.archiveWriter, heartbeat);
 
@@ -246,6 +273,8 @@ export async function runBackup(deps: BackupRunDependencies): Promise<BackupRunS
     artifactCount: artifacts.size,
     referencedObjectCount: referenced.length,
     purgedObjectCount: purgedObjects,
+    missingObjectCount: missing.length,
+    missingObjects: missing.slice(0, MAX_LISTED_MISSING_OBJECTS),
     rowCountTables: Object.keys(rowCounts).length,
     durationMs: completedAt.getTime() - startedAt.getTime(),
     heartbeatPublished: true,

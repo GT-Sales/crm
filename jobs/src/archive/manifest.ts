@@ -36,6 +36,13 @@ export const backupManifestSchema = z
     artifacts: z.array(manifestArtifactSchema).min(1),
     rowCounts: z.record(qualifiedTableName, z.number().int().nonnegative()),
     counts: z.record(z.string(), z.number().int().nonnegative()),
+    /**
+     * Documents the snapshot holds as available that storage no longer had
+     * when the run copied them (#86), as `<bucket>/<workspace>/<key>`: the run
+     * succeeded without them, and a restore cannot bring them back. Absent
+     * when none (and on every manifest from before the field).
+     */
+    missingObjects: z.array(z.string().min(1)).optional(),
     exclusions: z.array(z.string()),
   })
   .strict();
@@ -54,6 +61,7 @@ export function buildManifest(input: {
   artifacts: ManifestArtifact[];
   rowCounts: Record<string, number>;
   counts: Record<string, number>;
+  missingObjects?: string[];
   exclusions: string[];
 }): BackupManifest {
   return backupManifestSchema.parse({
@@ -66,6 +74,7 @@ export function buildManifest(input: {
     artifacts: input.artifacts,
     rowCounts: input.rowCounts,
     counts: input.counts,
+    ...(input.missingObjects ? { missingObjects: input.missingObjects } : {}),
     exclusions: input.exclusions,
   });
 }
