@@ -48,6 +48,7 @@ const SWITCHED_OFF_CODES = new Set([
   'attachments_unavailable',
   'plain_tasks_unavailable',
   'ai_models_unavailable',
+  'credential_lead_types_unavailable',
 ]);
 
 /** An `attachment_rejected` refusal by its `details.reason`. */
@@ -119,6 +120,8 @@ const KNOWN: Record<string, string | ((action: string) => string)> = {
   export_too_large:
     'Too many leads to export at once. Narrow the list with filters, or pick fewer leads, and try again.',
   task_not_found: `This task no longer exists. ${RELOAD}`,
+  credential_lead_types_unavailable:
+    'Website keys cannot be issued until a database update is applied (migration 0043). Ask whoever looks after the CRM to apply it, then try again.',
   plain_tasks_unavailable:
     'Tasks without a lead are not switched on for this site yet. Add the task on a lead for now, or ask the owner.',
   assignee_not_found:

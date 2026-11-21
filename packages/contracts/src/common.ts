@@ -174,6 +174,12 @@ export const domainErrorCodeSchema = z.enum([
   // `storage` (migration 0040 not applied) or `catalogue` (the Gateway's model
   // list could not be read). Never answered by the chat.
   'ai_models_unavailable',
+  // A website key asked to create or save a lead of a type it is not
+  // permitted (403, issue #84): no lead is created and none is changed.
+  'lead_type_not_permitted',
+  // A website key's lead types asked of a database without migration 0043
+  // (503): the backend is deployed before the owner applies it.
+  'credential_lead_types_unavailable',
 ]);
 export type DomainErrorCode = z.infer<typeof domainErrorCodeSchema>;
 

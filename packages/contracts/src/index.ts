@@ -107,6 +107,7 @@ export {
 export {
   createServiceCredentialRequestSchema,
   createServiceCredentialResponseSchema,
+  credentialLeadTypesSchema,
   listServiceCredentialsResponseSchema,
   revokeServiceCredentialResponseSchema,
   serviceCredentialSummarySchema,

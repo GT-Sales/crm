@@ -306,8 +306,22 @@
     {
       "idx": 43,
       "version": "7",
-      "when": 1795291956666,
-      "tag": "0043_file_object_deletions",
+      "when": 1795291401123,
+      "tag": "0043_credential_lead_types",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1795291402463,
+      "tag": "0044_credential_lead_types_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1795293022511,
+      "tag": "0045_file_object_deletions",
       "breakpoints": true
     }
   ]

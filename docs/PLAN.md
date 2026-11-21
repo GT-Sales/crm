@@ -170,7 +170,13 @@ At the cutover Get Canada Sim's `supabase/migrations` (0001–0044) are copied t
    Postgres RLS reads `app.workspace_id` set per transaction. Missing context
    denies.
 4. **Each website authenticates with its own service credential**, stored
-   hashed, revocable, scoped to the lead types it may submit.
+   hashed, revocable, scoped to the lead types it may submit. The key holds
+   the list (`service_credentials.lead_types`); a lead of another type,
+   draft or submitted, on create or on a draft save, is refused and nothing
+   is stored. Existing keys were given the lead types their site already
+   held, or every registered type for a site with no lead yet; a new key's
+   types are chosen when it is issued (owner decision, 21 Nov 2026, issue
+   #84).
 5. **Server-side validation per lead type**: length caps, allow-listed enums,
    date formats, file signatures from magic bytes.
 6. **Admin access = role × site membership.** An admin with membership only in

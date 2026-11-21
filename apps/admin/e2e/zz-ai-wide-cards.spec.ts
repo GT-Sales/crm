@@ -57,6 +57,8 @@ async function siteKey(request: APIRequestContext, workspaceId: string): Promise
   if (known) return known;
   const made = await staff(request, 'POST', workspaceId, '/service-credentials', {
     scopes: ['leads:write'],
+    // Every registered type: these journeys send more than one (issue #84).
+    leadTypes: ['internet', 'mobility', 'sim_order', 'partner_application', 'contact_message'],
   });
   expect(made.status).toBe(201);
   const secret = createServiceCredentialResponseSchema.parse(made.json).secret;

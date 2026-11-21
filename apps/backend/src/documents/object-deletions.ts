@@ -4,7 +4,7 @@ import type { R2DocumentStore } from '@gt-sales/adapters';
 
 /**
  * The durable record of document objects waiting to be deleted from storage
- * (#82, #108; table `app.file_object_deletions`, migration 0043).
+ * (#82, #108; table `app.file_object_deletions`, migration 0045).
  *
  * Every path that makes an object disposable writes its entry in its own
  * transaction: a file tombstoned (staff, a change request's rejection or
@@ -38,7 +38,7 @@ export const DELETION_RECORD_RECHECK_MS = 5 * 60_000;
 let recordState: { ready: boolean; at: number } | undefined;
 
 /**
- * Whether migration 0043's table exists. Migrations are applied by hand after
+ * Whether migration 0045's table exists. Migrations are applied by hand after
  * the deploy (docs/RUNBOOKS/database.md), so until then nothing is recorded
  * and the cleanup deletes an expired upload's objects once, as before. Like
  * `leads/task-schema.ts` it asks the catalogue and caches the answer: ready
@@ -197,7 +197,7 @@ export interface ClaimedObjectDeletion {
 }
 
 export interface ObjectDeletionQueue {
-  /** Whether the record exists yet (migration 0043); without it the sweep falls back. */
+  /** Whether the record exists yet (migration 0045); without it the sweep falls back. */
   ready(input: { workspaceId: string; actorId: string }): Promise<boolean>;
   /**
    * Due entries, at most `limit`, claimed for one try: each is checked against

@@ -1,5 +1,5 @@
 {
-  "id": "936ef210-6c47-4033-9645-fa53f397ab97",
+  "id": "768b9749-46ef-480c-8de5-01e6e9cddf6b",
   "prevId": "7d9f7c4c-12ba-46d5-8945-cf5411453228",
   "version": "7",
   "dialect": "postgresql",
@@ -4080,200 +4080,6 @@
       },
       "isRLSEnabled": true
     },
-    "app.file_object_deletions": {
-      "name": "file_object_deletions",
-      "schema": "app",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "bucket": {
-          "name": "bucket",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "object_key": {
-          "name": "object_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "file_id": {
-          "name": "file_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reason": {
-          "name": "reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "not_before": {
-          "name": "not_before",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "attempts": {
-          "name": "attempts",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "last_error": {
-          "name": "last_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "completed_at": {
-          "name": "completed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "outcome": {
-          "name": "outcome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "file_object_deletions_object_unique": {
-          "name": "file_object_deletions_object_unique",
-          "columns": [
-            {
-              "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "bucket",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "object_key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "file_object_deletions_due_idx": {
-          "name": "file_object_deletions_due_idx",
-          "columns": [
-            {
-              "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "not_before",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"app\".\"file_object_deletions\".\"completed_at\" is null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "file_object_deletions_workspace_id_workspaces_id_fk": {
-          "name": "file_object_deletions_workspace_id_workspaces_id_fk",
-          "tableFrom": "file_object_deletions",
-          "tableTo": "workspaces",
-          "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {
-        "file_object_deletions_tenant_policy": {
-          "name": "file_object_deletions_tenant_policy",
-          "as": "PERMISSIVE",
-          "for": "ALL",
-          "to": [
-            "app_runtime"
-          ],
-          "using": "\"app\".\"file_object_deletions\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
-          "withCheck": "\"app\".\"file_object_deletions\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
-        },
-        "file_object_deletions_backup_reader_read": {
-          "name": "file_object_deletions_backup_reader_read",
-          "as": "PERMISSIVE",
-          "for": "SELECT",
-          "to": [
-            "backup_reader"
-          ],
-          "using": "true"
-        }
-      },
-      "checkConstraints": {
-        "file_object_deletions_reason_check": {
-          "name": "file_object_deletions_reason_check",
-          "value": "\"app\".\"file_object_deletions\".\"reason\" in ('staging_after_attach', 'upload_rejected', 'upload_expired', 'file_deleted', 'backfill')"
-        },
-        "file_object_deletions_outcome_check": {
-          "name": "file_object_deletions_outcome_check",
-          "value": "(\"app\".\"file_object_deletions\".\"completed_at\" is null and \"app\".\"file_object_deletions\".\"outcome\" is null) or (\"app\".\"file_object_deletions\".\"completed_at\" is not null and \"app\".\"file_object_deletions\".\"outcome\" in ('deleted', 'kept_referenced'))"
-        },
-        "file_object_deletions_attempts_check": {
-          "name": "file_object_deletions_attempts_check",
-          "value": "\"app\".\"file_object_deletions\".\"attempts\" >= 0"
-        }
-      },
-      "isRLSEnabled": true
-    },
     "app.file_review_events": {
       "name": "file_review_events",
       "schema": "app",
@@ -4513,21 +4319,6 @@
             },
             {
               "expression": "revision",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "file_revisions_object_key_idx": {
-          "name": "file_revisions_object_key_idx",
-          "columns": [
-            {
-              "expression": "object_key",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -4869,22 +4660,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "files_candidate_key_idx": {
-          "name": "files_candidate_key_idx",
-          "columns": [
-            {
-              "expression": "candidate_key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"app\".\"files\".\"candidate_key\" is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -8567,6 +8342,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "array[]::text[]"
+        },
+        "lead_types": {
+          "name": "lead_types",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
         },
         "revoked_at": {
           "name": "revoked_at",

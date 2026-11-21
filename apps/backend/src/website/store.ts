@@ -3,9 +3,16 @@ import { auditEvents, type DatabaseClient, serviceCredentials, withTenantTx } fr
 import { websiteScopeSchema } from '@gt-sales/contracts';
 import type { WebsiteScopeName } from '@gt-sales/types';
 
+import {
+  credentialLeadTypesSchema,
+  type CredentialLeadTypesSchemaProbe,
+} from './credential-schema.js';
+
 export interface ServiceCredentialRecord {
   id: string;
   scopes: WebsiteScopeName[];
+  /** The lead types the key may send; null when it is not limited (see `credential-schema.ts`). */
+  leadTypes: string[] | null;
   createdAt: string;
   revokedAt: string | null;
 }
@@ -14,8 +21,19 @@ export interface CreateCredentialInput {
   actorId: string;
   workspaceId: string;
   scopes: readonly WebsiteScopeName[];
+  /** The lead types the key may create and save (issue #84). */
+  leadTypes: readonly string[];
   secretHash: string;
   requestId: string;
+}
+
+/** The database has no `lead_types` column yet (migration 0043): the key is not created. */
+export class CredentialLeadTypesUnavailableError extends Error {
+  readonly code = 'credential_lead_types_unavailable';
+  constructor() {
+    super('service credential lead types are not available yet');
+    this.name = 'CredentialLeadTypesUnavailableError';
+  }
 }
 
 export interface RevokeCredentialInput {
@@ -46,6 +64,7 @@ const defaultCredentialDatabase: CredentialDatabase = { withTenantTx };
 function toRecord(row: {
   id: string;
   scopes: string[];
+  leadTypes?: string[] | null;
   createdAt: Date;
   revokedAt: Date | null;
 }): ServiceCredentialRecord {
@@ -53,28 +72,40 @@ function toRecord(row: {
     id: row.id,
     // Persisted scopes are validated back to the known scope union, never trusted blindly.
     scopes: websiteScopeSchema.array().parse(row.scopes),
+    leadTypes: row.leadTypes ?? null,
     createdAt: row.createdAt.toISOString(),
     revokedAt: row.revokedAt ? row.revokedAt.toISOString() : null,
   };
 }
 
 export class DatabaseWebsiteCredentialStore implements WebsiteCredentialStore {
-  constructor(private readonly database: CredentialDatabase = defaultCredentialDatabase) {}
+  constructor(
+    private readonly database: CredentialDatabase = defaultCredentialDatabase,
+    /** Whether the database holds the lead types yet (migration 0043). */
+    private readonly leadTypesSchema: CredentialLeadTypesSchemaProbe = credentialLeadTypesSchema,
+  ) {}
 
   async createCredential(input: CreateCredentialInput): Promise<ServiceCredentialRecord> {
     return this.database.withTenantTx(
       { actorId: input.actorId, workspaceId: input.workspaceId },
       async (tx) => {
+        // Without the column the chosen lead types could not be kept: refuse
+        // rather than issue a key that looks limited and is not.
+        if (!(await this.leadTypesSchema.ready(tx))) {
+          throw new CredentialLeadTypesUnavailableError();
+        }
         const [row] = await tx
           .insert(serviceCredentials)
           .values({
             workspaceId: input.workspaceId,
             secretHash: input.secretHash,
             scopes: [...input.scopes],
+            leadTypes: [...input.leadTypes],
           })
           .returning({
             id: serviceCredentials.id,
             scopes: serviceCredentials.scopes,
+            leadTypes: serviceCredentials.leadTypes,
             createdAt: serviceCredentials.createdAt,
             revokedAt: serviceCredentials.revokedAt,
           });
@@ -88,7 +119,7 @@ export class DatabaseWebsiteCredentialStore implements WebsiteCredentialStore {
           entity: 'service_credential',
           entityId: row.id,
           requestId: input.requestId,
-          after: { scopes: [...input.scopes] },
+          after: { scopes: [...input.scopes], leadTypes: [...input.leadTypes] },
         });
 
         return toRecord(row);
@@ -103,10 +134,13 @@ export class DatabaseWebsiteCredentialStore implements WebsiteCredentialStore {
     return this.database.withTenantTx(
       { actorId: input.actorId, workspaceId: input.workspaceId },
       async (tx) => {
+        // Before migration 0043 there is no column to read: every key is "not limited".
+        const withLeadTypes = await this.leadTypesSchema.ready(tx);
         const rows = await tx
           .select({
             id: serviceCredentials.id,
             scopes: serviceCredentials.scopes,
+            ...(withLeadTypes ? { leadTypes: serviceCredentials.leadTypes } : {}),
             createdAt: serviceCredentials.createdAt,
             revokedAt: serviceCredentials.revokedAt,
           })

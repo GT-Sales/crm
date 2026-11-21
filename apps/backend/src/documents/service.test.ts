@@ -86,7 +86,7 @@ describe('DocumentService.runCleanup backup-lease gate', () => {
     );
   });
 
-  it('deletes an expired upload once, as before, while the deletion record is not applied (0043)', async () => {
+  it('deletes an expired upload once, as before, while the deletion record is not applied (0045)', async () => {
     const store = new InMemoryDocumentRecordStore();
     const r2 = new InMemoryR2DocumentStore();
     const service = new DocumentService(store, r2, resolver);

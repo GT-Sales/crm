@@ -194,7 +194,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -390,7 +392,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -621,7 +625,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -817,7 +823,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1076,7 +1084,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1278,7 +1288,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1517,7 +1529,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1755,7 +1769,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1816,6 +1832,20 @@
                               "type": "string",
                               "enum": ["leads:write", "uploads:customer", "tracking"]
                             }
+                          },
+                          "leadTypes": {
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z0-9_]+$"
+                                }
+                              },
+                              { "type": "null" }
+                            ]
                           },
                           "createdAt": {
                             "type": "string",
@@ -1988,7 +2018,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2045,6 +2077,20 @@
                             "type": "string",
                             "enum": ["leads:write", "uploads:customer", "tracking"]
                           }
+                        },
+                        "leadTypes": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64,
+                                "pattern": "^[a-z0-9_]+$"
+                              }
+                            },
+                            { "type": "null" }
+                          ]
                         },
                         "createdAt": {
                           "type": "string",
@@ -2217,7 +2263,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2258,9 +2306,20 @@
                       "type": "string",
                       "enum": ["leads:write", "uploads:customer", "tracking"]
                     }
+                  },
+                  "leadTypes": {
+                    "minItems": 1,
+                    "maxItems": 5,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[a-z0-9_]+$"
+                    }
                   }
                 },
-                "required": ["scopes"]
+                "required": ["scopes", "leadTypes"]
               }
             }
           }
@@ -2446,7 +2505,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2927,7 +2988,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -3316,7 +3379,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -3600,7 +3665,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -3993,7 +4060,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -4274,7 +4343,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -5004,7 +5075,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -5315,7 +5388,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -5760,7 +5835,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -6167,7 +6244,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -7664,7 +7743,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -8782,7 +8863,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -9988,7 +10071,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -11080,7 +11165,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12129,7 +12216,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -13159,7 +13248,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -13358,7 +13449,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -13999,7 +14092,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -15029,7 +15124,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -15631,7 +15728,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -16259,7 +16358,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -16552,7 +16653,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -16866,7 +16969,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -17331,7 +17436,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -17611,7 +17718,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -17987,7 +18096,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -18393,7 +18504,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -18781,7 +18894,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -19072,7 +19187,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -19425,7 +19542,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -19676,7 +19795,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -19931,7 +20052,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -20230,7 +20353,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -20621,7 +20746,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -20952,7 +21079,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -21393,7 +21522,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -21704,7 +21835,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -22030,7 +22163,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -22334,7 +22469,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -22720,7 +22857,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -23069,7 +23208,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -23341,7 +23482,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -23655,7 +23798,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -23966,7 +24111,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -24249,7 +24396,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -24552,7 +24701,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -24773,7 +24924,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -24987,7 +25140,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -25273,7 +25428,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -25559,7 +25716,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -27913,7 +28072,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -35531,7 +35692,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -37732,7 +37895,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -45371,7 +45536,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -52990,7 +53157,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -53459,7 +53628,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -53869,7 +54040,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -61490,7 +61663,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -71612,7 +71787,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -79233,7 +79410,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -86873,7 +87052,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -94494,7 +94675,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -102115,7 +102298,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -102350,7 +102535,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -102773,7 +102960,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -103114,7 +103303,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -105813,7 +106004,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -112695,7 +112888,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -113019,7 +113214,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -113372,7 +113569,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -113600,7 +113799,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -113818,7 +114019,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -114031,7 +114234,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -114287,7 +114492,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -114504,7 +114711,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -114707,7 +114916,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -115306,7 +115517,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -115631,7 +115844,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -115862,7 +116077,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -116102,7 +116319,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -121178,7 +121397,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -123970,7 +124191,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -124749,7 +124972,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -125272,7 +125497,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -125547,7 +125774,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -125750,7 +125979,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -125953,7 +126184,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -126191,7 +126424,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -126530,7 +126765,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -126748,7 +126985,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -127026,7 +127265,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -127354,7 +127595,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -127695,7 +127938,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -127962,7 +128207,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -128189,7 +128436,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -128436,7 +128685,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -128706,7 +128957,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -129020,7 +129273,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -129257,7 +129512,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -129467,7 +129724,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -129708,7 +129967,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -130160,7 +130421,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -130435,7 +130698,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -130715,7 +130980,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -131011,7 +131278,9 @@
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable",
-                            "ai_models_unavailable"
+                            "ai_models_unavailable",
+                            "lead_type_not_permitted",
+                            "credential_lead_types_unavailable"
                           ]
                         },
                         "message": { "type": "string" },

@@ -971,7 +971,7 @@ CanadaWide's legacy `public.mobility_id_uploads`, when that table exists),
 nulls the `body` of their timeline entries, and deletes the given contacts
 that no lead on any site references. The backend itself tombstones the
 leads' files and deletes their objects (recorded in the same transaction and
-retried until storage confirms once 0043 is applied), deletes their tasks, clears their
+retried until storage confirms once 0045 is applied), deletes their tasks, clears their
 contact link and trims the order details. It trims the attribution extras
 (`utmTerm`, `utmContent`, `landingPath`) only as part of the update that
 restricts a draft: on a lead that is already restricted, 0001's
@@ -1587,7 +1587,93 @@ select count(*) from app.leads
    and jsonb_exists_any(attribution, app.restricted_lead_erased_attribution_keys());
 ```
 
-## 0043_file_object_deletions (2026-11-21, issues #82 and #108, not applied)
+## 0043_credential_lead_types and 0044_credential_lead_types_backfill (2026-11-21, issue #84, not applied)
+
+Each website key is limited to the lead types it may send (docs/PLAN.md §3
+rule 4; owner decision, 21 Nov 2026). Apply the two together, 0043 then 0044.
+
+**0043 (generated).** `app.service_credentials` gets `lead_types text[]`,
+nullable, no default (metadata-only, no rewrite). Null means "not limited".
+No grant, policy or function changes: `app_runtime` already holds SELECT,
+INSERT, UPDATE and DELETE on the table (0001), its tenant policy and FORCE
+ROW LEVEL SECURITY cover the new column, and `app.resolve_website_credential`
+is untouched (the backend reads the list inside the lead write's own
+transaction).
+
+**0044 (hand-written, `drizzle-kit generate --custom`; its snapshot is
+0043's).** One `UPDATE` that fills the column for the keys that exist, and
+only where it is still null:
+
+- a key of a site that holds leads gets the lead types of **every lead that
+  site holds**, whatever its status (drafts, submitted, archived, imported);
+  every key of a site gets the same list;
+- a key of a site with no lead gets every type registered today
+  (`sim_order`, `internet`, `mobility`, `partner_application`,
+  `contact_message`), so a site about to go live is not refused its first
+  lead. Revoked keys are filled too.
+
+**What changes for a website.** A `POST /api/v1/website/leads` or a draft
+`PATCH` for a lead type the key does not list answers `403
+lead_type_not_permitted` and stores nothing. **A form a site has but has
+never yet sent a lead from is therefore refused after 0044** (a contact form
+nobody has used, a partner application form): read the preview and correct
+the lists before or straight after applying.
+
+- **Preview, before applying** (what each key would get):
+
+```sql
+select w.slug, c.id, c.revoked_at is not null as revoked,
+       coalesce((select array_agg(distinct l.lead_type order by l.lead_type)
+                   from app.leads l where l.workspace_id = c.workspace_id),
+                array['sim_order','internet','mobility','partner_application','contact_message']) as would_get
+  from app.service_credentials c join app.workspaces w on w.id = c.workspace_id
+ order by w.slug, c.created_at;
+```
+
+- **To apply** (owner, Supabase SQL editor as `postgres`), in one
+  transaction: both files' statements, then the tracker rows (hash,
+  `created_at`): `0043_credential_lead_types`
+  `ecd9512b0fb4fce45d010829fc029d66f8d2c26ab32199e5f466d1208e3ce87d`,
+  `1795291401123`; `0044_credential_lead_types_backfill`
+  `759910fbd49e980803824ca10803e0fd704876b0ecc2604e467ebedd51ac517e`,
+  `1795291402463` (45 rows with 0042 applied
+  first).
+- **To correct a key's list** (there is no admin control for an existing
+  key; the other way is to issue a new key with the right types and revoke
+  the old one). The values must be registered lead types:
+
+```sql
+update app.service_credentials
+   set lead_types = array['internet','mobility','contact_message']
+ where id = '<key id from Settings → Integrations>';
+```
+
+- **Deploy order.** Either. This backend before the migration: no key is
+  limited (it asks the catalogue for the column,
+  `website/credential-schema.ts`, and re-asks every 5 minutes), the key list
+  shows "not limited", and issuing a key answers `503
+credential_lead_types_unavailable` rather than drop the chosen types. The
+  migration before this backend: the older backend ignores the column, and a
+  key it issues in between has a null list (not limited) until corrected as
+  above; running 0044's statement again fills it from the site's leads.
+- **After applying** (no redeploy): within 5 minutes the backend checks
+  every website create and draft save against the key's list, Settings →
+  Integrations shows each key's lead types, and a new key is issued with the
+  types the owner ticks.
+- Rollback, after reverting the code: `ALTER TABLE app.service_credentials
+DROP COLUMN lead_types;`. A backend that has seen the column keeps reading
+  it until it restarts, so restart it (or revert the code first).
+- Verify against the schema:
+
+```sql
+select is_nullable, data_type from information_schema.columns
+ where table_schema = 'app' and table_name = 'service_credentials' and column_name = 'lead_types';  -- YES, ARRAY
+select count(*) from app.service_credentials where lead_types is null;   -- 0 after 0044
+select w.slug, c.id, c.lead_types from app.service_credentials c
+  join app.workspaces w on w.id = c.workspace_id where c.revoked_at is null order by w.slug;
+```
+
+## 0045_file_object_deletions (2026-11-21, issues #82 and #108, not applied)
 
 Every storage copy of a document is deleted, and a failed delete is retried
 until storage confirms (owner decision, 21 Nov 2026). An upload leaves up to
@@ -1637,9 +1723,9 @@ row completed `kept_referenced` is reopened when its file is deleted later.
 
 **To apply** (owner, Supabase SQL editor as `postgres`), in one transaction:
 the file's statements without the `--> statement-breakpoint` lines, then the
-tracker row (hash, `created_at`): `0043_file_object_deletions`
+tracker row (hash, `created_at`): `0045_file_object_deletions`
 `e12f780ebb7f78c812f770fc5e40fa557ea6462dd21ea23c4c360c0fc82a15f4`,
-`1795291956666` (44 rows, after 0042). `CREATE TABLE` touches nothing live;
+`1795293022511` (46 rows, after 0044). `CREATE TABLE` touches nothing live;
 each `CREATE INDEX` holds a SHARE lock on `app.files` or `app.file_revisions`
 while it builds, so uploads and reviews wait for it (reads go on): well under
 a second at a few thousand rows. The deploy and the migration may go in
