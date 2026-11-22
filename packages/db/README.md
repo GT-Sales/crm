@@ -14,7 +14,9 @@ staff access (`memberships`, `roles`, `membership_roles`, `permissions`,
 `membership_permissions`), the global `contacts` table (merge by normalized
 email), `leads` with `lead_activities` and `lead_tasks`, `draft_grants`, the
 outbox, `service_credentials`, `rate_limit_buckets`, `audit_events`, documents
-(`files`, `file_revisions`, `file_review_events`) and the email tables.
+(`files`, `file_revisions`, `file_review_events`), the email tables, and the
+properties, plans, tracking, automation and Ask AI tables added since
+(docs/ARCHITECTURE.md §3 groups all 50).
 
 ## Migrations
 
@@ -26,6 +28,8 @@ LEVEL SECURITY`, the SECURITY DEFINER bootstrap functions
   (`list_staff_workspaces`, `accept_staff_invitations`,
   `resolve_website_credential`, `rate_limit_hit`, `prune_operational_rows`),
   and the audit-redaction and customer-restriction triggers.
+- `0002` onwards: generated migrations, each with a hand-written custom
+  companion where it needs grants, FORCE RLS or functions.
 
 After changing `schema.ts`: `pnpm --filter @gt-sales/db db:generate`, then
 `pnpm exec drizzle-kit generate --custom --name <grants>` for the grants and

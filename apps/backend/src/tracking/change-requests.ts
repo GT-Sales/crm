@@ -30,14 +30,15 @@ import { composeCustomerEmail } from '../email/compose.js';
 import { queueComposedEmail } from '../email/queue.js';
 import { isPlanAvailable } from '../leads/order.js';
 import { nextSiteNumber } from '../leads/site-counter.js';
-import { selectLeadDetail, toLeadActivity } from '../leads/staff-queries.js';
+import { selectLeadDetail } from '../leads/staff-queries.js';
+import { toLeadActivity } from '../leads/lead-work-queries.js';
 import {
   applyLeadUpdate,
   lockLead,
   type LeadUpdateContext,
   type LockedLead,
-  type UpdateLeadWorkInput,
-} from '../leads/work-store.js';
+} from '../leads/work-writes.js';
+import { type UpdateLeadWorkInput } from '../leads/work-types.js';
 import { loadPlanForFreeze } from '../plans/store.js';
 import type { WriteScope } from '../tenant-scope.js';
 import { lockRequest, selectPending, type ChangeRequestRow } from './change-request-rows.js';

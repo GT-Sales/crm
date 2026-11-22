@@ -2,15 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-  type ReactNode,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   CUSTOM_PROPERTY_KEY_PREFIX,
   DEFAULT_LEAD_VIEW_STATE,
@@ -22,10 +14,7 @@ import {
   leadTypeEntry,
   leadTypeLabel,
   SAVED_VIEW_LIMIT,
-  type AssignableMember,
-  type FilterableLeadProperty,
   type LeadExportFilter,
-  type LeadFieldOption,
   type LeadPropertyFilter,
   type LeadPropertyOperator,
   type LeadTableColumn,
@@ -61,7 +50,6 @@ import {
   TableIcon,
   XIcon,
 } from 'lucide-react';
-
 import {
   createSavedView,
   deleteSavedView,
@@ -82,7 +70,6 @@ import {
   filterQueryForLeadType,
   inboxSearch,
   legacySearchParam,
-  parseHiddenColumns,
   parseInboxQuery,
   type InboxQuery,
 } from './inbox-query';
@@ -111,108 +98,32 @@ import {
   isViewDirty,
   viewStateToInboxQuery,
 } from './view-state';
+import {
+  ActiveFilterChip,
+  CheckRow,
+  Count,
+  TOOLBAR_BUTTON,
+  TOOLBAR_ICON,
+  TOOLBAR_LABEL,
+  TabButton,
+  assigneeFilterWords,
+  defaultDraftMultiFor,
+  defaultDraftValueFor,
+  optionLabel,
+} from './inbox-controls';
+import {
+  SORT_FIELDS,
+  keepUnreadProperties,
+  splitSort,
+  takeLegacyHiddenColumns,
+  useStableValue,
+} from './inbox-url';
 
 const SEARCH_DELAY_MS = 300;
 
-/** Compact icon controls in the inbox header; their panels hold all view settings. */
-// An icon on narrow screens; from `xl` the button says what it is.
-const TOOLBAR_BUTTON = 'relative h-8 w-8 shrink-0 gap-1.5 rounded-full p-0 xl:w-auto xl:px-3';
-const TOOLBAR_LABEL = 'hidden text-xs font-normal xl:inline';
-const TOOLBAR_ICON = 'size-3.5 text-muted-foreground';
 const countFormat = new Intl.NumberFormat('en-CA');
 /** The most leads one bulk archive or restore changes. */
 const BULK_ARCHIVE_MAX = 100;
-
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick(): void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      className={cn(
-        'inline-flex items-center gap-2 border-b-2 px-3 py-2 text-sm whitespace-nowrap transition-colors',
-        active
-          ? 'border-primary font-medium text-foreground'
-          : 'border-transparent text-muted-foreground hover:text-foreground',
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-function Count({ value }: { value: number | undefined }) {
-  if (value === undefined) return null;
-  return (
-    <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground tabular-nums">
-      {value}
-    </span>
-  );
-}
-
-/** A choice option the site no longer offers for new values (it still finds old leads). */
-function isRetired(option: LeadFieldOption): boolean {
-  return 'hidden' in option && option.hidden === true;
-}
-
-/** The option a new filter starts on: the first one still offered. */
-function firstOfferedOption(prop: FilterableLeadProperty): LeadFieldOption | undefined {
-  return prop.options?.find((option) => !isRetired(option)) ?? prop.options?.[0];
-}
-
-function defaultDraftValueFor(prop: FilterableLeadProperty | undefined): string {
-  if (!prop) return '';
-  if (prop.kind === 'choice') return firstOfferedOption(prop)?.value ?? '';
-  if (prop.kind === 'yesNo') return 'true';
-  return '';
-}
-
-function defaultDraftMultiFor(prop: FilterableLeadProperty): string[] {
-  const first = firstOfferedOption(prop);
-  return first ? [first.value] : [];
-}
-
-/** A choice option as the filter offers it, a retired one marked. */
-function optionLabel(option: LeadFieldOption): string {
-  return isRetired(option) ? `${option.label} (retired)` : option.label;
-}
-
-/** The URL params that name properties, with the `InboxQuery` field each one carries. */
-const PROPERTY_PARAMS = [
-  ['where', 'where'],
-  ['cols', 'columns'],
-  ['sort', 'sort'],
-] as const;
-
-/**
- * While the site's catalogue cannot be read, the built-in one cannot parse a
- * custom property's filter, column or sort; a change that does not touch
- * them keeps them as the URL had them, so a shared link loses nothing.
- */
-function keepUnreadProperties(
-  search: string,
-  currentUrl: string,
-  patch: Partial<InboxQuery>,
-): string {
-  const params = new URLSearchParams(search.slice(1));
-  const current = new URLSearchParams(currentUrl);
-  for (const [param, field] of PROPERTY_PARAMS) {
-    if (field in patch) continue;
-    const raw = current.get(param) ?? (param === 'cols' ? current.get('columns') : null);
-    if (raw !== null) params.set(param, raw);
-  }
-  const kept = params.toString();
-  return kept ? `?${kept}` : '';
-}
 
 /** What a failed saved-view call says to the person who made it. */
 function savedViewFailure(error: unknown): string {
@@ -230,130 +141,6 @@ function savedViewFailure(error: unknown): string {
     return 'This view no longer exists. Reload the page to see your views.';
   }
   return describeError(error, 'save the view');
-}
-
-const LEGACY_HIDDEN_COLUMNS_KEY = 'gt-table-hidden-cols:';
-
-/**
- * The hidden table columns this browser kept before they moved into the URL
- * (`?hide=`), read once and forgotten. Returns undefined when there were none.
- */
-function takeLegacyHiddenColumns(workspaceId: string): LeadTableColumn[] | undefined {
-  try {
-    const key = `${LEGACY_HIDDEN_COLUMNS_KEY}${workspaceId}`;
-    const raw = window.localStorage.getItem(key);
-    if (raw === null) return undefined;
-    window.localStorage.removeItem(key);
-    const saved: unknown = JSON.parse(raw);
-    if (!Array.isArray(saved)) return undefined;
-    const hide = parseHiddenColumns(
-      saved.filter((entry): entry is string => typeof entry === 'string'),
-    );
-    return hide.length > 0 ? hide : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * One applied filter, "Field: value ×", in the CRM chip style. Its button
- * names the filter whole ("Remove filter Stage: New"), so two filters on one
- * property are told apart.
- */
-function ActiveFilterChip({
-  label,
-  value,
-  onRemove,
-}: {
-  label: string;
-  value: string;
-  onRemove(): void;
-}) {
-  return (
-    <span className="inline-flex h-6 max-w-full items-center gap-1 rounded-[4px] border border-crm-chip-border bg-crm-chip pr-0.5 pl-2 text-[12px] text-crm-chip-foreground">
-      <span className="shrink-0 font-medium">{label}:</span>
-      <span className="min-w-0 truncate">{value}</span>
-      <button
-        type="button"
-        aria-label={`Remove filter ${label}: ${value}`}
-        title={`Remove filter ${label}: ${value}`}
-        className="grid size-5 shrink-0 place-items-center rounded-[3px] outline-none hover:bg-crm-chip-border/50 focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={onRemove}
-      >
-        <XIcon aria-hidden="true" className="size-3" />
-      </button>
-    </span>
-  );
-}
-
-/** An assignee filter as the chip names it: `Me`, `Unassigned` or the member. */
-function assigneeFilterWords(value: string, members: readonly AssignableMember[]): string {
-  if (value === 'me') return 'Me';
-  if (value === 'none') return 'Unassigned';
-  const member = members.find((entry) => entry.actorId === value);
-  return member ? memberName(member) : 'A teammate';
-}
-
-/** One checkbox row of a menu panel, labelled by its text. */
-function CheckRow({
-  id,
-  label,
-  checked,
-  disabled,
-  onToggle,
-}: {
-  id: string;
-  label: string;
-  checked: boolean;
-  disabled?: boolean;
-  onToggle(): void;
-}) {
-  return (
-    <button
-      type="button"
-      id={id}
-      role="checkbox"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={onToggle}
-      className={cn(
-        'inline-flex min-h-7 max-w-full items-center rounded-full border px-2.5 py-1 text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
-        checked
-          ? 'border-border bg-muted text-foreground'
-          : 'border-border/50 text-muted-foreground hover:bg-accent',
-      )}
-    >
-      <span className="truncate">{label}</span>
-    </button>
-  );
-}
-
-const SORT_FIELDS: readonly { field: string; label: string; first: 'asc' | 'desc' }[] = [
-  { field: 'fullName', label: 'Name', first: 'asc' },
-  { field: 'createdAt', label: 'Created', first: 'desc' },
-  { field: 'updatedAt', label: 'Last activity', first: 'desc' },
-];
-
-function splitSort(sort: string | undefined): { field?: string; direction?: 'asc' | 'desc' } {
-  if (!sort) return {};
-  const colon = sort.lastIndexOf(':');
-  const direction = sort.slice(colon + 1);
-  return {
-    field: sort.slice(0, colon),
-    direction: direction === 'asc' || direction === 'desc' ? direction : undefined,
-  };
-}
-
-/**
- * The previous reference while `value` serializes the same (`undefined`
- * included), so a re-parse of the URL does not hand consumers a new array.
- */
-function useStableValue<T>(value: T): T {
-  const key = JSON.stringify(value) ?? 'undefined';
-  const [held, setHeld] = useState({ key, value });
-  if (held.key === key) return held.value;
-  setHeld({ key, value });
-  return value;
 }
 
 /**

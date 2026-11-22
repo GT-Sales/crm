@@ -25,8 +25,7 @@ cron job is not scheduled.
    limit) never falls back: that is the CRM refusing the lead. If the
    fallback insert fails too, the answer is the old 502.
 2. **Why a function, not the old insert.** The anonymous insert policies on
-   the two legacy tables were dropped on 2026-10-27
-   ([manual/close-canadawide-lead-inserts.sql](manual/close-canadawide-lead-inserts.sql)):
+   the two legacy tables were dropped on 2026-10-27:
    the publishable key is public, so anyone could insert past the site's
    checks. `public.canadawide_fallback_lead(p_key, p_lead_type, p_lead)`
    (CanadaWide repo, `supabase/migrations/20261109090000_crm_intake_fallback.sql`)

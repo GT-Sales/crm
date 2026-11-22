@@ -16,13 +16,15 @@ import {
 import { FakeOwnerAlertChannel } from '@gt-sales/adapters';
 import { customerEmailEnvironmentFromEnv } from '../src/email/senders.js';
 import { DatabaseLeadStore } from '../src/leads/store.js';
-import { applyLeadUpdate, DatabaseLeadWorkStore } from '../src/leads/work-store.js';
+import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
+import { applyLeadUpdate } from '../src/leads/work-writes.js';
 import {
   addActiveVersion,
   disposableTestDatabaseUrl,
   flowKey,
   insertActiveFlow,
 } from './support/flows.js';
+import { TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = disposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -53,7 +55,6 @@ const LEFT = '28000000-0000-4000-8000-000000008604'; // a member who has since l
 const STAFF = '28000000-0000-4000-8000-000000008601';
 const CREDENTIAL = '28000000-0000-4000-8000-000000008602';
 const RUNNER = '28000000-0000-4000-8000-000000008603'; // the scheduler's identity
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 const ARCHIVED_TEMPLATE = 'tpl_tick860100000001';
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;

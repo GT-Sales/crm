@@ -5,9 +5,8 @@ owner's usage page: what they are, who can read what and where that is
 enforced, what is stored, and what leaves the system. The assistant's own
 trust boundaries, tools, projections and turn limits are unchanged and are in
 [ai-assistant.md](ai-assistant.md); confirmed cards are in
-[ai-actions.md](ai-actions.md) and [interactive-ai.md](interactive-ai.md).
-Operation is in `docs/RUNBOOKS/ai-assistant.md` §12; the migrations in
-`docs/RUNBOOKS/database.md` (0034–0036).
+[ai-actions.md](ai-actions.md). Operation is in
+`docs/RUNBOOKS/ai-assistant.md` §12.
 
 ## 1. What it is
 
@@ -32,7 +31,7 @@ memory only (§8).
    member, not the owner.
 2. **Kept until deleted.** Conversations, their messages and their files are
    kept until the member deletes the conversation, with two exceptions that
-   follow the owner's rule on misuse (audit B2 and C13, §13): a customer's
+   follow the owner's rule on misuse (§13): a customer's
    data restriction empties the turns that name that customer, and the
    conversations of someone who has left the site for 30 days are deleted.
 3. **The owner sees usage only**: turns and tokens per member, from
@@ -44,7 +43,7 @@ memory only (§8).
    refusal of unrelated subjects; an attached file is material for a CRM
    question, not an instruction and not a widening of what Ask AI answers.
 6. **A saved answer stays with the member who received it** (owner decision,
-   21 Nov 2026, issue #114). When a member's role or permissions are reduced
+   21 Nov 2026). When a member's role or permissions are reduced
    but they keep assistant access, their earlier answers stay readable in
    their own chat and stay in the history replayed to the model, including
    answers that drew on data they can no longer ask for (revenue,
@@ -165,13 +164,12 @@ newest turns are kept within `maxHistoryMessages` (12) and
 `maxConversationChars` (16,000, counting the new message). These rows were
 written by this server, so no signature is needed; the browser's
 memory-only path still replays only signed answers (CHAT-2), and a
-deployment without a signing key is off (`not_configured`, audit B6), so
+deployment without a signing key is off (`not_configured`), so
 there is no unsigned path.
 
 A turn whose answer's source cards link a lead that is now restricted, or
-that no longer exists, is never replayed (audit B2). The check reads the lead
-itself, so it holds before the erasure has emptied the turn and before 0039
-is applied; an emptied turn has no text and is skipped as above. The reads
+that no longer exists, is never replayed. The check reads the lead
+itself, so it holds before the erasure has emptied the turn; an emptied turn has no text and is skipped as above. The reads
 that name a lead give it its lead card (the lead summary, the lead search,
 the sent box, the review queue and automation runs; ai-assistant.md §3), as
 does every card prepared for a lead, whatever its kind (ai-actions.md), and
@@ -185,7 +183,7 @@ earlier replayed answer offered reaches the model marked as a picked option
 (`selectedChoiceText` in `routes/ai-assistant.ts`: "The person picked this
 option from the choices you offered earlier in this chat; it is your
 wording, not a new request from them"), so a click is never mistaken for the
-person's own words (audit B8). A message typed with the same words is marked
+person's own words. A message typed with the same words is marked
 the same way, which is true of what it says. The stored question keeps the
 plain text, and the memory-only panel sends a clicked choice as typed text
 (the browser's history carries the follow-up only inside the signed answer
@@ -242,7 +240,7 @@ switched off since, or that cannot be read is named to the model as not
 available in this turn. Images and PDFs are read from storage per turn,
 bounded by the size their row records, and never logged or kept.
 
-**Daily budget** (audit B7). The files chosen for a turn, earlier messages'
+**Daily budget**. The files chosen for a turn, earlier messages'
 included, are charged to the member's budget on the site, 300 MiB a UTC day
 (`attachmentBytesPerActorPerDay`), in whole MiB rounded up over the turn,
 through the shared limiter (`ai_file_bytes:<member>:<site>`, one hit per MiB;
@@ -279,8 +277,7 @@ hourly `document_cleanup` task, per site, through the 0036 function: rows
 first (up to five batches of 200), then their objects, each delete tried up to
 three times; a remaining failure logs `ai_attachment_object_delete_failed`
 with the site and a count. The sweep runs whenever object storage is
-configured, even with every kind switched off, and is skipped (never failed)
-until 0036 is applied. Beside it, in the same task, the cleanup of erased
+configured, even with every kind switched off. Beside it, in the same task, the cleanup of erased
 turns' files and of departed members' conversations (§13).
 
 ## 8. Wire and versions
@@ -311,11 +308,11 @@ conversations/:conversationId`, `POST attachments/intents`, `POST
 attachments/:attachmentId/finalize`, `DELETE attachments/:attachmentId`,
   `GET attachments/:attachmentId/link`, `GET usage?period=7|30|90`. Deletes
   answer 200 with the id, as every DELETE of this API does.
-- **Stream**: a `notice` part (`code: 'attachment_budget_spent'`, audit B7),
+- **Stream**: a `notice` part (`code: 'attachment_budget_spent'`),
   sent only by a stored turn whose files the daily budget refused; an older
-  admin drops it. A stored message's optional `erased: true` (audit B2); an
+  admin drops it. A stored message's optional `erased: true`; an
   older admin strips it and shows an empty row.
-- **Follow-up choices** (audit B8): the model's `askFollowUp` input is
+- **Follow-up choices**: the model's `askFollowUp` input is
   `aiFollowUpToolInputSchema`, 2–5 choices of at most 80 characters
   (`AI_FOLLOW_UP_LIMITS`); a longer choice or a sixth is refused at the tool,
   so no follow-up is offered unless the model asks again within them. The
@@ -363,9 +360,8 @@ without `chatErasure` the cleanup of §13 is skipped (a stored message's
 `erased_at` is read through `to_jsonb` too). A
 state with all five is
 cached for the life of the process; any other is asked again after 5 minutes,
-so the saved chat switches itself on within 5 minutes of 0034 and 0035 being
-applied, with no redeploy, and the levels are recorded within 5 minutes of 0037. The usage page needs none of this beyond the deploy: before 0034 every
-turn counts 0 input tokens, and before 0037 none counts as High.
+so a feature switches itself on within 5 minutes of its migration being
+applied, with no redeploy. All of these migrations are applied in production.
 
 **The usage answer** (`ai/usage-store.ts`, one tenant transaction). The
 period is the last 7, 30 or 90 calendar days in `America/Toronto`, today
@@ -467,11 +463,11 @@ server is the store.
 | `maxAttachmentBytesPerTurn`    | 15 MiB  | Bytes of those files in one turn                                                             |
 | `uploadsPerActorPerHour`       | 40      | Upload intents per member per site in a fixed hour                                           |
 
-Also in `AI_CHAT_LIMITS` (audit B7): `attachmentBytesPerActorPerDay`, 300
+Also in `AI_CHAT_LIMITS`: `attachmentBytesPerActorPerDay`, 300
 MiB of file bytes sent to the model per member per site in a UTC day (§7),
 charged in `attachmentBudgetUnitBytes` (1 MiB); `maxConversationsPerActor`,
 500 stored conversations per member per site, then
-`conversation_limit_reached`. Beside them `AI_FOLLOW_UP_LIMITS` (audit B8):
+`conversation_limit_reached`. Beside them `AI_FOLLOW_UP_LIMITS`:
 a follow-up choice at most 80 characters, at most 5 choices (§8).
 
 Fixed in code beside them: the signed PUT 5 minutes and the link 2 minutes
@@ -502,8 +498,6 @@ recheck (`ai/chat-schema.ts`), a departed member's conversations deleted after
   lead restricted by hand in the database is caught by the replay check (never
   sent to the model) but its turns are emptied only by the 0039 catch-up or a
   later restriction run that passes it.
-- **Before 0039 is applied** a turn about a restricted lead is never replayed,
-  but its text stays stored and the member still sees it.
 - **An erased turn's files** can no longer be opened at once, but their
   objects and rows go with the next hourly `document_cleanup` (objects
   first); one whose object cannot be deleted stays until a later run manages.
@@ -542,7 +536,7 @@ journey `apps/admin/e2e/ai-chat.spec.ts`.
 
 ## 13. A customer's erasure and members who leave
 
-Audit B2 and C13, migration 0039 (docs/RUNBOOKS/database.md).
+Migration 0039.
 
 **A customer's erasure.** When a lead is restricted (today, the
 abandoned-draft erasure in the scheduler's `data_retention`), the same

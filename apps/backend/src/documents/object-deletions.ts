@@ -58,11 +58,6 @@ export async function deletionRecordReady(
   return recordState.ready;
 }
 
-/** Test seam: forget the cached answer. */
-export function resetDeletionRecordProbeForTests(): void {
-  recordState = undefined;
-}
-
 export type ObjectDeletionReason =
   'staging_after_attach' | 'upload_rejected' | 'upload_expired' | 'file_deleted' | 'backfill';
 

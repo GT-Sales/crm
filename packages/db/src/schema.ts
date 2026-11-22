@@ -536,6 +536,12 @@ export const leadActivities = appSchema
         table.leadId,
         table.createdAt,
       ),
+      // Which leads someone has opened (migration 0049): the sidebar's count of
+      // new leads on every navigation, each list row's "New" badge and the
+      // unopened filter all ask this of the whole site's timeline.
+      index('lead_activities_opened_idx')
+        .on(table.workspaceId, table.leadId)
+        .where(sql`${table.kind} = 'system' and (${table.data} ->> 'event') = 'opened'`),
       tenantPolicy('lead_activities_tenant_policy', table.workspaceId),
       backupReadPolicy('lead_activities'),
     ],
@@ -839,7 +845,7 @@ export const auditEvents = appSchema
  * Document metadata. An upload is staged under a presigned PUT, verified by
  * file signature on finalize, then attached; the object itself lives in the
  * Storage bucket named in `bucket`. `record_type`/`record_id` name the owning
- * record (a lead today; orders in a later phase).
+ * record (a lead: an order is a lead's order details).
  */
 export const files = appSchema
   .table(

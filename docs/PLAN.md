@@ -1,104 +1,92 @@
-# GT Sales CRM — build plan
+# GT Sales CRM — decisions and rules
 
-**Status:** in production · **Written:** 2026-10-25, reduced to the current
-plan 2026-11-17 · **Owner:** Md Takibuddin (builds and runs it) · **Client:**
-GT Sales (owns it)
+**Status:** in production · **Owner:** Md Takibuddin (builds and runs it) ·
+**Client:** GT Sales (owns it)
 
-This replaces `docs/CRM_PLATFORM_PLAN.md` in the Get-Canada-Sim repo, which now
-points here. What is live, what waits for an owner step and what comes next is
-in [HANDOFF.md](HANDOFF.md); this file holds the decisions, the target
-architecture and rules, and the phases that are not finished.
-
----
+The decisions in force and the rules the system is built on. What is live
+and what waits for an owner step is in [HANDOFF.md](HANDOFF.md); how the
+system works is in [ARCHITECTURE.md](ARCHITECTURE.md). Section numbers here
+are cited from code comments, so keep them stable.
 
 ## 1. Decisions
 
-| #   | Decision                                                                                                                                                                                                                                          | Notes                                                                                                                                                                                              |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Websites today: **Get Canada Sim** and **CanadaWide**. More will follow.                                                                                                                                                                          | A new site must need no new tables or admin pages.                                                                                                                                                 |
-| 2   | **This repo** holds the backend, the admin and the shared packages. Each website stays in its own repo.                                                                                                                                           | Backend and admin change together; websites rarely touch the API.                                                                                                                                  |
-| 3   | **Every SIM order is also a lead** in the shared inbox.                                                                                                                                                                                           | The order keeps its fulfilment screens.                                                                                                                                                            |
-| 4   | **People are merged by email** across sites.                                                                                                                                                                                                      | Trimmed + lower-cased. Email only — never name or phone. Admins can split a wrong merge.                                                                                                           |
-| 5   | **The database stays where it is**: the existing Get Canada Sim Supabase project (Mumbai, `ap-south-1`).                                                                                                                                          | Additive changes only. No copy to a new database.                                                                                                                                                  |
-| 6   | **Copy and adapt the Canadian Plans platform** instead of building from scratch.                                                                                                                                                                  | Canadian Plans is the owner's own code. Its structure, infrastructure, auth, admin shell and tooling are reused. Its business data, brand, legal texts, plan catalogue and Sanity CMS are **not**. |
-| 7   | Follows from 6: **Drizzle over a pooled Postgres connection with row-level security**, **Supabase Auth for staff**, **a service credential per website**, **S3-compatible object storage adapter**.                                               | Replaces Get Canada Sim's supabase-js-with-secret-key pattern.                                                                                                                                     |
-| 8   | **One product, built from this repository, deployed per business.** Canadian Plans' features move in where they earn their place; an order is a lead carrying order tools; stages, payment status and carrier commission are separate properties. | Decided 2026-10-28; the merge decisions are in §1.1 and its phases in §7.                                                                                                                          |
-| 9   | In code, a website is a **`workspace`** (Canadian Plans' term). The UI says **Site**.                                                                                                                                                             | Keeps the copied code intact.                                                                                                                                                                      |
+| #   | Decision                                                                                                                                                                    | Notes                                                                                           |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| 1   | Websites today: **Get Canada Sim** and **CanadaWide**. More will follow.                                                                                                    | A new site must need no new tables or admin pages.                                              |
+| 2   | **This repo** holds the backend, the admin and the shared packages. Each website stays in its own repo.                                                                     | Backend and admin change together; websites rarely touch the API.                               |
+| 3   | **Every SIM order is also a lead** in the shared inbox.                                                                                                                     | An order is a lead carrying order tools.                                                        |
+| 4   | **People are merged by email** across sites.                                                                                                                                | Trimmed and lower-cased. Email only, never name or phone.                                       |
+| 5   | **The database stays where it is**: the Get Canada Sim Supabase project (Mumbai, `ap-south-1`).                                                                             | Additive changes only.                                                                          |
+| 6   | **Copied and adapted from the Canadian Plans platform** (the owner's own code).                                                                                             | Its structure, auth, admin shell and tooling were reused; its business data and brand were not. |
+| 7   | **Drizzle over a pooled Postgres connection with row-level security**, **Supabase Auth for staff**, **a service credential per website**, **S3-compatible object storage**. |                                                                                                 |
+| 8   | **One product, built from this repository, deployed per business** (2026-10-28).                                                                                            | Stages, payment status and carrier commission are separate properties.                          |
+| 9   | In code a website is a **`workspace`**; the UI says **Site**.                                                                                                               |                                                                                                 |
 
 Reuse note: Canadian Plans has no LICENSE file and is owned solely by the
 owner, so copying it into this private client repo is the owner granting the
-client a copy. Check the client contract if exclusivity matters. The Canadian
-Plans repo is public on GitHub. The admin's look adapts the Shadcnblocks admin
-kit and blocks the owner supplied (Shadcnblocks.com License, copyright 2024
-Shadcnblocks.com, supplied for a customized end product); no Twenty source is
-in the repository.
+client a copy. The admin's look adapts the Shadcnblocks admin kit and blocks
+the owner supplied (Shadcnblocks.com License); no Twenty source is in the
+repository.
 
 ### 1.1 Merge decisions (owner, 2026-10-28)
 
-The owner's answers when this repository became the one product
-("merge decision _n_" in the code and runbooks):
+"Merge decision _n_" in the code and runbooks:
 
 1. The owner owns all the code; no ownership constraint on reuse.
-2. A reusable product: one codebase, one deployment and database per business,
-   each configured for its own modules, rules and branding.
-3. The order flow is basically the same across businesses (lead → sale →
-   dispatch → activation → commission): one set of order tools, configured per
-   business.
+2. A reusable product: one codebase, one deployment and database per
+   business, each configured for its own modules, rules and branding.
+3. One set of order tools (lead → sale → dispatch → activation →
+   commission), configured per business.
 4. Websites are outside the product, each in its own repository, calling the
    API with a site key.
-5. Multi-factor sign-in is off in every deployment (can be added back as an
-   option if a client asks).
+5. Multi-factor sign-in is off in every deployment.
 6. The same person on several sites of one business is merged by email;
-   businesses never share customers (each has its own database).
+   businesses never share customers.
 7. Only GT Sales' data is live.
-8. Base: this repository and its migration history; ported features come in
-   with additive migrations.
+8. Base: this repository and its migration history; additive migrations.
 9. Plans are an object managed in the admin; no Sanity sync.
-10. Plans are built on the shared property engine (built-in plus custom
-    properties per site); staff create no object types.
-11. Each plan belongs to one site; nothing is shared or copied between sites.
-12. No quote step and no offer versions: the backend reads the plan's price at
-    submission, ignores any browser price and freezes a copy on the lead.
+10. Plans are built on the shared property engine; staff create no object
+    types.
+11. Each plan belongs to one site.
+12. No quote step: the backend reads the plan's price at submission, ignores
+    any browser price and freezes a copy on the lead.
 13. An order is a lead; each website form is a lead type; order lead types
     carry the order tools.
-14. Order state is separate properties: stage (progress only), payment status,
-    carrier commission.
+14. Order state is separate properties: stage (progress only), payment
+    status, carrier commission.
 15. Partners later: the partner code stays on leads; no partner screens or
     payouts yet.
-16. Every change is on the lead's timeline (who, when, which field), customer
-    actions too. A customer's own save of an unfinished form shows the
-    changed fields **with the values they filled in** (owner decision, 21 Nov
-    2026, issue #87, chosen over field names only): one entry per save that
-    really changed something, by the website's key. The values follow the
-    rules for customer text on the timeline (§3 rule 9, AGENTS.md rules 4 and
-    7): kept where a customer's erasure nulls them, shown only with a lead's
-    details, never in a log or an audit event, and never for a sensitive
-    field. Staff edits still name fields only.
-17. Customer tracking follows Get Canada Sim's flow: email → one-time code →
-    orders → change requests that staff approve.
+16. Every change is on the lead's timeline (who, when, which field),
+    customer actions too. A customer's own save of an unfinished form shows
+    the changed fields **with the values they filled in** (21 Nov 2026):
+    kept where a customer's erasure nulls them, shown only with a lead's
+    details, never in a log or an audit event, never for a sensitive field.
+    Staff edits still name fields only.
+17. Customer tracking: email → one-time code → orders → change requests that
+    staff approve.
 18. No admin feature deletes customer data: requests come through the
-    website's contact page and a developer deletes in the database; staff can
-    only archive.
-19. Backups: Canadian Plans' backup system (database and documents, encrypted,
-    to Backblaze B2, a practised restore), first; the archive key may write but
-    never delete.
-20. The source report moves in.
-21. The province waitlist is skipped.
-22. The synthetic check moves in, simplified: a test lead to a hidden test site
-    every 15 minutes, an alert on failure, the check cleans up after itself.
-23. Admin look: the CRM's colours and fonts with Twenty's layout (compact
-    tables, view bar, side panel, board).
+    website's contact page and a developer deletes in the database; staff
+    can only archive.
+19. Backups: database and documents, encrypted, to Backblaze B2, with a
+    practised restore; the archive key may write but never delete.
+20. The source report is part of the CRM.
+21. No province waitlist.
+22. The intake check: a test lead to a hidden test site every 15 minutes, an
+    alert on failure, the check cleans up after itself.
+23. Admin look: the CRM's colours and fonts with a compact layout (tables,
+    view bar, side panel, board).
 24. Saved views are private only.
-25. A full automation builder, built last.
-26. Analytics are read-only from the self-hosted Umami; the CRM sends nothing
-    to Umami.
+25. A full automation builder.
+26. Analytics are read-only from the self-hosted Umami; the CRM sends
+    nothing to Umami.
 27. The repository stays at `GT-Sales/crm` with the `@gt-sales/*` names for
-    now; the owner moves and renames it later in one step.
-28. Order tools: plan with frozen price, dispatch and activation details, the
-    documents check with a recorded override, double-submit protection,
+    now.
+28. Order tools: plan with frozen price, dispatch and activation details,
+    the documents check with a recorded override, double-submit protection,
     automatic customer emails off until switched on.
 29. One lead is one sale, with a quantity.
-30. Canadian Plans would move after phases 1–6 (since dropped, §7).
+30. Canadian Plans itself does not move in (dropped 2026-10-31): GT Sales
+    only.
 31. No blog editor and no partner portal in the CRM.
 32. Customer email: one shared layout, site branding, editable text.
 
@@ -107,15 +95,35 @@ site; contacts merged by email; stage keys (labels change freely, keys are
 referenced by reports, emails and automations); the repository location and
 package names.
 
+### 1.2 Later owner decisions in force
+
+| Date        | Decision                                                                                                                                  |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-10-25  | No multi-factor step: a privileged action needs only the role or permission that grants it.                                               |
+| 2026-10-27  | A verified staff session is cached for 60 seconds per token.                                                                              |
+| 2026-11-06  | One GitHub Environment, `backup-gt-sales`, with one bucket-only B2 key for the backup, monitor and retention workflows.                   |
+| 2026-11-20  | The old Get Canada Sim admin keeps receiving a copy of every submitted CRM order until the owner retires it.                              |
+| 13 Nov 2026 | A mail to a lead's customer keeps its subject and plain text on its timeline entry.                                                       |
+| 21 Nov 2026 | A site key lists the lead types it may send; anything else is refused and nothing is stored.                                              |
+| 21 Nov 2026 | The leads search (a name, email or phone) is in no URL: page state and a request body only. The non-personal filters stay in the address. |
+| 21 Nov 2026 | Every storage copy of a document is deleted, and a failed delete is retried until storage confirms.                                       |
+| 21 Nov 2026 | One current file per lead and document type, enforced by the database; the newest upload wins and no approval is carried over.            |
+| 21 Nov 2026 | Order tracking dates an order by when it was submitted.                                                                                   |
+| 21 Nov 2026 | Older restricted drafts get the same erasure as current ones.                                                                             |
+| 21 Nov 2026 | A rescued Get Canada Sim order reaches the old admin once its contact is complete (migration 0048, not applied yet).                      |
+| Nov 2026    | A backup run that completes with documents missing from storage stays green with a warning and one owner alert.                           |
+| 21 Nov 2026 | When a member's access is reduced, their saved Ask AI chats follow the rule in [design/ai-chat.md](design/ai-chat.md) §2.                 |
+| 21 Nov 2026 | Testing: no staging environment exists yet, traffic is low, no site takes card payments ([TESTING-PLAN.md](TESTING-PLAN.md)).             |
+
 ## 2. Sources
 
-| Repo                                     | Contributes                                                                                                                                                                                                                                                                                                                                                                                          |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Canadian-Plans/canadianplans-web-app`   | Monorepo tooling, strict TS + lint boundaries, CI, Dockerfile, Railway config; backend core (request ids, logging, errors, shutdown, scheduler, rate limits, machine registry); staff auth + MFA + RBAC; website credentials; documents (signed upload, signature verification); outbox + email module; audit; deletion/retention; admin shell, auth pages, site switcher, API client; `packages/*`. |
-| `Md-Takibuddin/Get-Canada-Sim`           | Everything the business actually does: order flow, statuses, partners, commissions, invoices, blog editor, admin boards, partner portal, email templates, plan catalogue (`data.ts`), 44 SQL migrations, 30 test programs (converted to Vitest where useful).                                                                                                                                        |
-| `Md-Takibuddin/Canadawide-Sales-website` | Field rules for internet and mobility leads (`lib/lead.ts`, `lib/mobility-application.ts`), ID upload step. Its lead routes send to the backend (`lib/crm.ts`).                                                                                                                                                                                                                                      |
+The Canadian Plans platform gave the monorepo tooling, the backend core,
+staff auth and RBAC, website credentials, documents, the outbox and email
+module, audit, retention and the admin shell. Get Canada Sim gave what the
+business does: the order flow and statuses, plans, email texts. CanadaWide
+gave the field rules for internet and mobility leads and the ID step.
 
-## 3. Target architecture
+## 3. Architecture and rules
 
 ```
 getcanadasim.com ──┐
@@ -126,300 +134,186 @@ next website ──────┘                                   ▲        
                                             Supabase Auth session
 ```
 
-### Repo layout
-
-```
-crm/
-  apps/
-    backend/          Express + strict TS. The only database client. Long-lived container on Railway.
-    admin/            Next.js CRM. API client only.
-  packages/
-    contracts/        Zod request/response schemas, typed client, OpenAPI generator.
-    db/               Drizzle schema, migrations, withTenantTx. Imported only by the backend.
-    adapters/         Object store (S3), email (Resend), alerts, error tracking, logging.
-    ui/               shadcn primitives + tokens.
-    config/           tsconfig, ESLint (db import boundary), Prettier, Vitest, Playwright presets.
-    observability/    Log-record builder + PII scrubber.
-    types/            Shared domain types.
-  jobs/               Outbox handlers; backup, monitor, retention and restore CLIs.
-  docs/
-```
-
-At the cutover Get Canada Sim's `supabase/migrations` (0001–0044) are copied to
-`supabase/legacy/` as the read-only record of the `public` schema (§6).
-
-### Hosting
-
-- **Backend:** Railway, Singapore (`asia-southeast1`), the Railway region nearest
-  the Mumbai database and Auth. It started in US East (Virginia) on 2026-10-25,
-  the closest region to the staff in Canada, but every staff request is a chain
-  of sequential database round trips and the Virginia-to-Mumbai hop made the
-  empty leads inbox take seven seconds; the owner moved it the same day. The
-  admin stays on Vercel, so only API calls travel further. Long-lived
-  container; the in-process scheduler runs the outbox, document clean-up, data
-  retention, the automation tick and, when configured, the intake check
-  (`apps/backend/src/scheduler.ts`).
-- **Admin:** its own Vercel project.
-- **Database / Auth / Storage:** the existing Supabase project. Backend connects
-  through the transaction-mode pooler (port 6543) as a restricted
-  `app_runtime` role. Staff sign in with Supabase Auth. Files stay in the
-  existing private buckets, reached through Storage's S3-compatible endpoint.
+Hosting: the backend on Railway in Singapore (`asia-southeast1`), the region
+nearest the Mumbai database, because every staff request is a chain of
+sequential database round trips; the admin on Vercel; database, Auth and
+Storage in the one Supabase project. Details: [HANDOFF.md](HANDOFF.md) §1 and
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
 ### Rules
 
 1. **The backend is the only database client.** Websites and the admin never
-   hold a database key. (Browser-direct upload via a backend-issued signed URL
-   is the one documented exception, as in both source repos.)
-2. **Every tenant table carries `workspace_id NOT NULL`.** Cross-site tables
-   are only `workspaces`, `memberships`, the Auth identities and `contacts`
-   (§5.4).
+   hold a database key. (Browser-direct upload through a backend-issued
+   signed URL is the one documented exception.)
+2. **Every tenant table carries `workspace_id NOT NULL`.** `contacts` is the
+   documented global table (§5.4).
 3. **Isolation is enforced twice:** the backend authorizes each request, and
    Postgres RLS reads `app.workspace_id` set per transaction. Missing context
    denies.
 4. **Each website authenticates with its own service credential**, stored
-   hashed, revocable, scoped to the lead types it may submit. The key holds
-   the list (`service_credentials.lead_types`); a lead of another type,
-   draft or submitted, on create or on a draft save, is refused and nothing
-   is stored. Existing keys were given the lead types their site already
-   held, or every registered type for a site with no lead yet; a new key's
-   types are chosen when it is issued (owner decision, 21 Nov 2026, issue
-   #84).
-5. **Server-side validation per lead type**: length caps, allow-listed enums,
-   date formats, file signatures from magic bytes.
-6. **Admin access = role × site membership.** An admin with membership only in
-   CanadaWide never sees a Get Canada Sim lead, including on a merged contact.
+   hashed, revocable, scoped, and limited to the lead types it may submit
+   (`service_credentials.lead_types`). A lead of another type, draft or
+   submitted, is refused and nothing is stored.
+5. **Server-side validation per lead type**: length caps, allow-listed
+   enums, date formats, file signatures from magic bytes.
+6. **Admin access = role × site membership.** A member of CanadaWide only
+   never sees a Get Canada Sim lead, including on a merged contact.
 7. **Sensitive values are protected.** ID documents stay private behind
-   short-lived signed URLs; SINs are encrypted and shown masked; every reveal
-   or download is audited.
+   short-lived signed URLs; SINs are encrypted and shown masked; every
+   reveal or download is audited.
 8. **External side effects go through the outbox**, executed after commit.
-9. **No PII in logs, errors or URLs.** No service-role key in application code.
-   The leads search is a customer's name, email or phone, so it is in no URL:
-   the inbox keeps it in page state (not in its address, not in a saved
-   view) and sends it in a request body (`POST …/leads/search`,
-   `…/leads/board/search`); the non-personal filters stay in the address and
-   shareable (owner decision, 21 Nov 2026, issue #83).
-10. **Strict TypeScript, no `any`.** Types, schemas and DB rows derive from one
-    source; API responses expose only the fields each audience may see.
-11. **"Not configured" and "the query failed" are different states.** A failed
-    load shows an error, never sample data. A website never fakes success.
+9. **No PII in logs, errors or URLs.** No service-role key in application
+   code. The leads search is in no URL.
+10. **Strict TypeScript, no `any`.** Types, schemas and DB rows derive from
+    one source; API responses expose only the fields each audience may see.
+11. **"Not configured" and "the query failed" are different states.** A
+    failed load shows an error, never sample data. A website never fakes
+    success.
 
-## 4. What was reused
+## 4. Scope
 
-The Canadian Plans platform was copied on 2026-10-25 and pruned: the tooling
-and packages (scope `@canadian-plans/*` → `@gt-sales/*`), the backend core,
-staff auth and RBAC (without the authenticator-code step), website
-credentials, documents, the outbox and email module, audit, retention and the
-admin shell were kept; Sanity and the CMS contracts, the catalogue sync, offer
-versions and quotes, Canadian Plans' own orders, commissions, invoices and
-partners, `apps/site-1`, the region waitlist and SES were dropped. The migration
-history started fresh (`0000_app_foundation` + `0001_runtime_functions`). The
-backups (merge phase 1), the property engine, plans, order tools, customer
-tracking, the source report, the intake check and automations were ported or
-built later through the merge phases (§7). Get Canada Sim's own admin screens
-(orders, partners, invoices, blog, admins, the partner portal) are not ported:
-orders are leads with order tools here, and partners, invoices, the blog and
-the portal are later or out of scope (§1.1, decisions 15 and 31).
+Orders are leads with order tools. Not in the CRM: Get Canada Sim's partner
+screens and payouts, invoices, the blog editor and the partner portal
+(decisions 15 and 31); Canadian Plans' own catalogue, quotes, orders and CMS.
 
-## 5. Key adaptations
+## 5. Key design points
 
 ### 5.1 Site = workspace
 
-`app.workspaces` gains `domain` and `status`. Seed rows: `getcanadasim`,
-`canadawide`. Service credentials = site keys; their `scopes` say what the
-site may do (`leads:write`, `uploads:customer`, `tracking`).
+A site is a row of `app.workspaces` (`slug`, `domain`, `status`). Service
+credentials are site keys; their `scopes` say what the site may do
+(`leads:write`, `uploads:customer`, `tracking`).
 
 ### 5.2 "All sites" reads
 
-Canadian Plans' RLS allows one workspace per transaction. For the shared
-inbox the backend runs one query per site the admin belongs to (2–5 sites)
-and merges the results. No RLS change. If the number of sites grows, switch to
-an `app.workspace_ids` setting with an `= any(...)` policy — a contained
-change in `tenantPolicy`. Not built yet: phase 3b (§7).
+RLS allows one workspace per transaction. A cross-site inbox would run one
+query per site the member belongs to and merge the results, with no RLS
+change. Not built.
 
 ### 5.3 Leads
 
-`app.leads` keeps `workspace_id`, `status`, contact fields, `payload`,
-`attribution`, `consent_version`, timestamps, and gains `lead_type`,
-`contact_id`, `assigned_actor_id`, `deleted_at`, `external_ref` (the source
-system's own id, e.g. `MS-123`; unique per site and type). A partner code
-stays in `attribution` verbatim until partners come (§1.1, decision 15).
-
-**Lead types are a registry in backend code** — Zod schema for `payload`,
-allowed statuses, labels, which fields are PII. Adding a form = a registry
-entry + a scope on the site's credential. The per-type working statuses are
-the lead's `stage` (`leads.stage`), with labels, stages, allowed moves and
-gates in `leadTypeCatalog` in the contracts so the admin shares them; `status`
-stays the form's lifecycle.
-
-| Type                  | Site           | Stages                                                                                                             |
-| --------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `internet`            | CanadaWide     | `new`, `contacted`, `qualified`, `existing_shaw`, `non_serviceable_address`, `old_due`, `installed`, `won`, `lost` |
-| `mobility`            | CanadaWide     | `new`, `contacted`, `qualified`, `activated`, `won`, `lost`                                                        |
-| `sim_order`           | Get Canada Sim | `incomplete`, `pending`, `verified`, `on_hold`, `delivered`, `activated`, `completed`, `cancelled`                 |
-| `partner_application` | Get Canada Sim | `new`, `contacted`, `approved`, `declined`; payload not modelled yet                                               |
-| `contact_message`     | Get Canada Sim | `new`, `replied`, `closed` — **proposed**; today only emailed; payload not modelled yet                            |
+**Lead types are a registry in backend code**
+(`apps/backend/src/leads/types.ts`): the payload schema, the intake rules,
+which fields are personal. Adding a form is a registry entry and the lead
+type on the site's key. The per-type working statuses are the lead's `stage`,
+with labels, stages, allowed moves and gates in `leadTypeCatalog` in the
+contracts so the admin shares them; `status` stays the form's lifecycle. The
+stages per type are in [ARCHITECTURE.md](ARCHITECTURE.md) §6.1. A partner
+code stays in `attribution` verbatim until partners come.
 
 ### 5.4 Contacts (merge by email)
 
-`app.contacts`: `id`, `email` (normalized `lower(btrim(...))`, unique),
-`full_name`, `phone`, `country_code`, timestamps. Global by design — the
-documented exception to rule 2. Its RLS policy requires only a verified actor
-(not "a lead in this workspace points at it"): intake on site B must find the
-contact site A created before any lead of B references it, and the upsert
-itself runs before the lead row exists. Tenant scoping is therefore enforced
-by the backend, which only ever exposes a contact through a lead of the
-current workspace and never lists the table. Intake normalizes the email,
-finds-or-creates the contact, attaches the lead, and refreshes name/phone/
-country from the latest submission without erasing earlier values. Gmail dots
-and `+tags` are not stripped. Split/merge actions are audited (not built yet:
-phase 3b).
+`app.contacts` is global by design: unique by `lower(btrim(email))`, with
+name, phone and country. Its RLS policy requires only a verified actor,
+because intake on site B must find the contact site A created before any
+lead of B references it. Tenant scoping is therefore enforced by the backend,
+which only ever exposes a contact through a lead of the current workspace and
+never lists the table. Intake refreshes name, phone and country from the
+latest submission without erasing earlier values. Gmail dots and `+tags` are
+not stripped. Split and merge are not built.
 
 ### 5.5 Activities and tasks
 
-`lead_activities` is the append-only timeline (note, status change,
-assignment, email, call, edit, document, merge, system) and `lead_tasks` the
-follow-ups (title, `due_at`, assignee, `status` open/in progress/done/cancelled,
-`completed_at`). Get Canada Sim's per-table `reminder_*` columns became tasks
-in the import.
+`lead_activities` is the append-only timeline; `lead_tasks` the follow-ups
+and plain tasks.
 
 ### 5.6 Documents on Supabase Storage
 
-Canadian Plans' `files` tables and documents service are kept whole. The S3
-adapter's endpoint is the Supabase project's Storage S3 endpoint with Storage
-S3 access keys, so the existing `documents` and `mobility-ids` buckets stay
-put; Get Canada Sim's existing objects were copied into the CRM's part of the
-`documents` bucket and registered as `files` rows by the import. Supabase
-serves S3 under `/storage/v1/s3`, and SigV4 signs that path too.
+The S3 adapter's endpoint is the Supabase project's Storage S3 endpoint with
+Storage S3 access keys. Supabase serves S3 under `/storage/v1/s3`, and SigV4
+signs that path too.
 
 ### 5.7 Staff auth and roles
 
-Supabase Auth (already part of the project), email and password, no
-authenticator step. Mapping from Get Canada Sim:
+Supabase Auth, email and password, no authenticator step. Roles: `owner`,
+`leads`, `orders`, `partners`, `finance`, `content`, `viewer`. Recovery of a
+locked-out owner goes through the Supabase Auth dashboard.
 
-| Get Canada Sim                                            | Here                                                                                                                             |
-| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Super admin                                               | `owner` role in every workspace                                                                                                  |
-| Section `orders` / `partners` / `finance` / `blog` (edit) | Roles `orders` / `partners` / `finance` / `content`                                                                              |
-| Sections `internet_leads`, `mobility_leads`               | New role `leads` + membership in the matching site                                                                               |
-| View-only on a section                                    | `viewer` role (whole workspace). Per-section view-only can be added as permissions later if needed                               |
-| Email-or-username login, scrypt                           | Supabase Auth email + password. Existing hashes can't be imported, so each admin receives an invite and sets a new password once |
-| Break-glass env super admin                               | Canadian Plans' recovery runbook (Auth dashboard)                                                                                |
+### 5.8 Intake API
 
-Owner decision (25 Oct 2026): no multi-factor step. Canadian Plans' TOTP
-requirement for `owner` and `finance` was removed, so a privileged action needs
-only the role or permission that grants it.
-
-### 5.8 Intake API (what websites call)
-
-Server-to-server with `Authorization: Bearer <credential>`; the full contract
-is [HANDOFF.md](HANDOFF.md) §2.3 and §2.6.
-
-| Route                                                   | Purpose                                                                                                                                                           |
-| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /api/v1/website/leads`                            | Create a lead: `leadType`, optional `externalRef` (dedupe per site + type), `contact`, `form`, `consentVersion`, `attribution`. Returns `leadId` + a draft grant. |
-| `PATCH /api/v1/website/leads/:id`                       | Step 2 of a two-step form (`X-Draft-Grant`). Same site only; expires.                                                                                             |
-| `POST /api/v1/website/uploads/intents` → `.../finalize` | Signed upload URL for one path; backend re-reads the bytes, sniffs the type, attaches or deletes.                                                                 |
-
-Idempotent per site + key; rate-limited per credential, forwarded visitor and
-email (`rate_limit_buckets`).
+[ARCHITECTURE.md](ARCHITECTURE.md) §2 and §5.
 
 ### 5.9 Sensitive values
 
-SIN (CanadaWide mobility) is sealed with `cipher.ts` (AES-256-GCM, key
-`SENSITIVE_FIELDS_KEY` held only by the backend) on intake (the CRM's ID step,
-`POST /website/leads/:leadId/identity`); shown as `*** *** 123`; full reveal
-needs permission `sensitive.reveal` and writes an audit event. Documents:
-private buckets, signed URLs, audited downloads. CanadaWide's
-`public.mobility_id_uploads` (SINs in plain text) are not imported.
+A SIN (CanadaWide mobility) is sealed with `cipher.ts` (AES-256-GCM, key
+`SENSITIVE_FIELDS_KEY` held only by the backend) on intake; shown as
+`*** *** 123`; a full reveal needs `sensitive.reveal` and writes an audit
+event. Documents: private bucket, signed URLs, audited downloads.
+CanadaWide's `public.mobility_id_uploads` (SINs in plain text) are not
+imported.
 
-### 5.10 Dropped from Canadian Plans
+### 5.10 Left out or optional
 
-Sanity and the CMS contracts, catalogue sync, offer versions and quotes,
-CP's orders/commissions/invoices, site-1, region waitlist, SES, the Umami
-sink, Turnstile (optional: production runs `WEBSITE_BOT_CHECK=delegated`,
-docs/ENV.md).
+Sanity and the CMS contracts, catalogue sync, offer versions and quotes, the
+region waitlist, SES. Turnstile is optional: production runs
+`WEBSITE_BOT_CHECK=delegated` (ENV.md). Lead intake queues no analytics jobs;
+websites keep their own conversion events.
 
-## 6. Database plan
+## 6. Database
 
-- **Schemas:** CRM tables in `app` (RLS, Drizzle migrations). Get Canada Sim's
-  existing tables stay in `public`; the cutover adds `workspace_id` + RLS
-  policies there when the backend takes them over.
-- **Roles:** `app_runtime` (no `BYPASSRLS`, no superuser) for the backend over
-  the pooled `DATABASE_URL`; migrations as the project's `postgres` role over
-  `MIGRATION_DATABASE_URL`. `SET LOCAL app.workspace_id / app.actor_id` per
-  transaction (`withTenantTx`), which works under the transaction-mode pooler.
-- **Migration history:** fresh `0000_app_foundation` (drizzle-kit output,
-  with the `app_runtime` role block prepended) + `0001_runtime_functions`
-  (grants, FORCE RLS, `list_staff_workspaces`, `accept_staff_invitations`,
-  `resolve_website_credential`, `rate_limit_hit`, `prune_operational_rows`,
-  audit-redaction and customer-restriction triggers), then additive
-  migrations applied deliberately (docs/RUNBOOKS/database.md). Get Canada
-  Sim's `supabase/migrations` are copied to `supabase/legacy/` at the cutover
-  as the record of `public`; future `public` changes are Drizzle migrations
-  here.
+- **Schemas:** CRM tables in `app` (RLS, Drizzle migrations). The websites'
+  old tables stay in `public`.
+- **Roles:** `app_runtime` (no `BYPASSRLS`, no superuser) for the backend
+  over the pooled `DATABASE_URL`; migrations as the project's `postgres` role.
+  `withTenantTx` sets `app.workspace_id` and `app.actor_id` per transaction,
+  which works under the transaction-mode pooler.
+- **Migrations** are additive and applied deliberately, never by a deploy
+  ([RUNBOOKS/database.md](RUNBOOKS/database.md)).
 - **Token prefixes:** site keys are `gtsk_…`, draft grants `gtdg_…`.
-- **Data migration:** CanadaWide's and Get Canada Sim's histories are imported
-  by re-runnable scripts (docs/RUNBOOKS/legacy-import.md), reconciled by
-  counts. The old lead tables stay read-only and are dropped in a later step
-  with the remaining anon insert policies.
+- **Legacy data:** both sites' histories were imported by re-runnable
+  scripts ([RUNBOOKS/legacy-import.md](RUNBOOKS/legacy-import.md)). The two
+  legacy mirrors keep the old admins supplied until the owner retires them.
 
 ## 7. Phases
 
-| Phase                                                        | Status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CRM 0. Scaffold + deploy                                     | Done 2026-10-25.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| CRM 1. Data + intake                                         | Done except CanadaWide's ID step (`CRM_ID_STEP=on` on CanadaWide, then the last two anon policies dropped) and modelling `partner_application` and `contact_message` when Get Canada Sim's forms move.                                                                                                                                                                                                                                                                                                                                                                                                               |
-| CRM 2. CRM screens                                           | Done, except retiring the old Internet/Mobility Leads pages at the staff cutover. The cross-site inbox, the contact page and split/merge moved to phase 3b.                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| CRM 3b. Cross-site inbox, contact page, split/merge          | **Not started** (ruling of 2026-10-30): the inbox reading one query per site the member belongs to (§5.2), a contact page with one person's leads across sites, and audited split/merge of contacts.                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| Merge 1. Backups                                             | Built and merged 2026-10-29; the nightly backup runs (docs/RUNBOOKS/backup.md). Done when a restore drill (docs/RUNBOOKS/restore.md, "Drill") is recorded: status not confirmed in the repository.                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Merge 2. Property engine, hybrid layout, private saved views | Done 2026-10-29.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Merge 3. Plans, stage clean-up, Archive                      | Done 2026-10-30.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Merge 4. Order tools and customer email                      | Done 2026-10-30.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Merge 5. Get Canada Sim orders, customer tracking            | CRM side deployed 2026-10-31; the website's checkout and `/track` through the CRM are merged dark. **Left: the switch day** (owner decision D10, HANDOFF.md §5.1). Done when a real customer's change request has been approved in the CRM.                                                                                                                                                                                                                                                                                                                                                                          |
-| Merge 6. Source report, intake check                         | Done 2026-10-31; the intake check is on since 2026-11-06. Visitors beside leads per source (Umami) not built; the Analytics page reads Umami separately.                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| Merge 7. Canadian Plans moves                                | **Dropped** by the owner on 2026-10-31: Canadian Plans is out of scope; GT Sales only.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Merge 8. Review, then automation flows                       | Done: step A live 2026-10-31 (PR #12), step B 2026-11-01 (PR #13).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Staff AI assistant ("Ask AI")                                | Live for both sites since 2026-11-04: read tools, confirmed tasks, notes, customer email and one-field lead updates, and automation drafts (docs/RUNBOOKS/ai-assistant.md, docs/design/ai-assistant.md). The saved chat (stored conversations, attached files, the owner's usage page; docs/design/ai-chat.md) is merged and its migrations 0034–0037 are applied (2026-11-19); attachments wait on `AI_ATTACHMENT_KINDS` (HANDOFF.md §3.2 item 14). Plain tasks (a task with no lead) and Ask AI's task moves are merged; migrations 0038 and 0039 are applied (2026-11-20). Deferred items are in HANDOFF.md §5.2. |
-| Cutover clean-up                                             | Waits for staff to move to the CRM: drop the 0002 mirror trigger and the 0005/0006 identity mirror functions in a new migration, remove the old pages from the Get Canada Sim admin (HANDOFF.md §5.2).                                                                                                                                                                                                                                                                                                                                                                                                               |
+Built and live: the CRM screens, backups, the property engine and saved
+views, plans and Archive, order tools and customer email, Get Canada Sim's
+orders and customer tracking, the source report and the intake check,
+automation flows, and Ask AI. Not finished:
+
+| Work                                                | State                                                                                   |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| CanadaWide's ID step through the CRM                | Built; waits for `CRM_ID_STEP=on` on CanadaWide.                                        |
+| CanadaWide's staff cutover and the cutover clean-up | Waits for the owner's day; then drop the 0002 mirror and the identity mirror functions. |
+| Retiring the old Get Canada Sim admin               | The owner's call; then drop the 0041 mirror.                                            |
+| Cross-site inbox, contact page, split and merge     | Not started.                                                                            |
+| Modelling `partner_application`, `contact_message`  | Not started.                                                                            |
+| Backups' restore drill                              | Not recorded as done.                                                                   |
+
+The full list with owner steps is [HANDOFF.md](HANDOFF.md) §3 and §4.
 
 ## 8. Verification
 
-Every phase ends with CI green: boundary lint (no `@gt-sales/db` outside the
-backend), typecheck, lint, format, Vitest (including the RLS negative tests
-against a disposable Postgres: missing context denies, wrong workspace sees
-zero rows, runtime role cannot bypass), build, admin e2e. A data migration is
-rehearsed with reconciled counts before the real run. Nothing reaches
-production without the owner's approval.
+CI must be green: boundary lint (no `@gt-sales/db` outside the backend),
+typecheck, lint, format, Vitest (including the RLS negative tests against a
+disposable Postgres), build, admin e2e. A data migration is rehearsed with
+reconciled counts before the real run. Nothing reaches production without
+the owner's approval.
 
 ## 9. Risks
 
-| Risk                                        | Mitigation                                                                                                                         |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Admins must re-onboard (new password)       | Small team; invites sent by the owner; runbook copied                                                                              |
-| Two admins in parallel until the cutover    | Move one area at a time; until switch day the old admin is Get Canada Sim's working system and the CRM's copy is refreshed nightly |
-| Duplicate customer emails                   | Every automation starts off; the owner switches each one on per site after checking the website sends no copy of the same email    |
-| Wrong merges by email                       | Email-only matching; audited split/merge                                                                                           |
-| PII (SIN, IDs, DOB, addresses) under PIPEDA | Sealed fields, private storage, signed URLs, audited access, least privilege                                                       |
+| Risk                                        | Mitigation                                                                                           |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Two admins in parallel until the cutovers   | The mirrors copy new rows to the old admins; staff should work each lead in one place.               |
+| Duplicate customer emails                   | Every flow starts off; the owner switches each on after checking the website sends no copy.          |
+| Wrong merges by email                       | Email-only matching; split and merge to come.                                                        |
+| PII (SIN, IDs, DOB, addresses) under PIPEDA | Sealed fields, private storage, signed URLs, audited access, least privilege, erasure of old drafts. |
 
-## 10. Needed from the owner
+## 10. Decisions only the owner can make
 
-The full list of owner steps, with their status and runbooks, is
-[HANDOFF.md](HANDOFF.md) §5.1. Decisions only the owner can make:
-
-- When staff move from the old admin to the CRM (CanadaWide's staff cutover;
-  Get Canada Sim's switch day).
+- When CanadaWide's staff move to the CRM, and when the old Get Canada Sim
+  admin is retired.
 - Whether the Orders role alone may override the documents check (ruling D1,
   §11).
-- When to switch `OPERATIONAL_RETENTION_ENABLED` on (after a verified backup).
-- Whether contact-form messages are stored as leads (`contact_message`), at
-  the cutover.
-- The list of admins to invite and who is `owner` / `finance`.
+- When to switch `OPERATIONAL_RETENTION_ENABLED` on (after a verified
+  backup).
+- The list of admins to invite and who is `owner` or `finance`.
 - The product name (working title: GT Sales CRM) and brand tokens.
 
 ## 11. Decisions and rulings cited from the code
 
 Short definitions of the rulings and review findings that comments in the code
-and AGENTS.md cite by name. The full write-ups are in `git log`.
+cite by name. The full write-ups are in `git log`.
 
 **Phase 4 owner rulings (2026-10-30).** D1: the documents override is action
 `order.override`, roles `owner` and `orders`, no individual permission; moving
@@ -554,3 +448,13 @@ discards edits; UI-5 cards expire on time with specific errors; UI-6 no
 placeholder ids; UI-7 no consecutive questions after Stop or an error; UI-8
 abort-signal fallbacks; UI-9 Confirm and Edit wait while an answer streams;
 UI-10 timeout and over-budget answers have their own advice.
+
+**Saved chat review (2026-11-19).** B2: a customer's erasure reaches saved
+chats, and a turn about a restricted lead is never replayed. B6: without a
+signing key Ask AI is off. B7: a daily budget on file bytes sent to the
+model. B8: a follow-up question has two to five choices of at most 80
+characters, and a picked choice is never a confirmation. C13: the chats of a
+member gone from a site for 30 days are deleted.
+
+**Audit of 21 Nov 2026.** Issues #81 to #114, all fixed in PR #115; a code
+comment that cites one of those numbers refers to that audit.

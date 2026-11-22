@@ -11,6 +11,7 @@ import type { StaffNotificationEnvironment } from '../src/automations/staff-noti
 import { customerEmailEnvironmentFromEnv } from '../src/email/senders.js';
 import { DatabaseStaffStore } from '../src/staff/store.js';
 import { disposableTestDatabaseUrl, flowKey, insertActiveFlow } from './support/flows.js';
+import { TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = disposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -27,7 +28,6 @@ const GONE = '28000000-0000-4000-8000-000000008505'; // revoked
 const SIGNER = '28000000-0000-4000-8000-000000008506'; // signs in
 const WEBSITE = '28000000-0000-4000-8000-000000008507'; // a website credential: no member
 const INVITEE = '28000000-0000-4000-8000-000000008508'; // first sign-in, invited
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
 const ENV: NodeJS.ProcessEnv = {
   EMAIL_PROVIDER: 'fake',

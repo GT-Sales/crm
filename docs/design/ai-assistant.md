@@ -1,11 +1,9 @@
 # Ask AI — design, decisions and evidence
 
-The read-only core of Ask AI (version 1): its trust boundaries, the fields the
-model may see, its limits and the decisions behind them. Ask AI is on for both
-sites (docs/HANDOFF.md §3.1); confirmed actions are in
-[ai-actions.md](ai-actions.md), [interactive-ai.md](interactive-ai.md) and
-[ai-lead-updates.md](ai-lead-updates.md), stored conversations, attached files
-and the owner's usage page in [ai-chat.md](ai-chat.md), and operation in
+The core of Ask AI: its trust boundaries, the reads, the fields the model
+may see, its limits and the decisions behind them. Cards and confirmation
+are in [ai-actions.md](ai-actions.md); stored conversations, attached files
+and the owner's usage page in [ai-chat.md](ai-chat.md); operation in
 `docs/RUNBOOKS/ai-assistant.md`.
 
 ## 1. Discovery: versions and evidence
@@ -90,8 +88,7 @@ carries no data.
 
 The card tools (`getLeadUpdateOptions`, `getAssigneeOptions`,
 `getLeadEditOptions` and the `prepare…` tools) prepare cards only; their
-actions, store functions and safeguards are in [ai-actions.md](ai-actions.md)
-and [ai-lead-updates.md](ai-lead-updates.md).
+actions, store functions and safeguards are in [ai-actions.md](ai-actions.md).
 
 Lead names and references in the sent box, the review queue and automation
 runs are read with `leadLabels` (active, unrestricted leads only), because
@@ -361,8 +358,8 @@ components and the stored state are in [ai-chat.md](ai-chat.md) §10.
 
 ## 11. Evidence and known limits
 
-The runbook (`docs/RUNBOOKS/ai-assistant.md` §10) lists what has not been
-verified live. Known limitations to state plainly:
+The runbook (`docs/RUNBOOKS/ai-assistant.md` §10) lists what is not recorded
+as checked live. Known limitations:
 
 - Synthetic notes, names and values containing instructions are covered by
   the prompt, the record text cleaning and the projection (notes and values

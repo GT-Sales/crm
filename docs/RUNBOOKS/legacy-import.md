@@ -1,4 +1,10 @@
-# CanadaWide historical import
+# Legacy imports and mirrors
+
+Both sites' histories from before the CRM were imported on 2026-10-27 by
+re-runnable scripts in `packages/db/sql/`. CanadaWide's import runs once
+more at its staff cutover. **Get Canada Sim's import must never run again.**
+
+## CanadaWide historical import
 
 `packages/db/sql/canadawide-legacy-import.sql` copies CanadaWide's old admin
 data, `public.internet_leads` and `public.mobility_leads`, into the CRM's
@@ -16,9 +22,9 @@ use), with:
 | `reminder_at`, `reminder_note`, `reminder_done_at` | a task: title from the note (or "Follow up"), due at noon UTC that day, `done` with `reminder_done_at` as its completion |
 | `consent_version`                                  | `cw-legacy-import` (the old tables never recorded one)                                                                   |
 | (no "New" badge in the old admin)                  | an `opened` system entry by the "Old admin", dated the lead's creation, so imported leads carry no "New" badge           |
-| `mobility_id_uploads` (licence photos, SINs)       | **not imported**: they wait for Storage S3 keys and the SIN-sealing key (PLAN.md §5.9)                                   |
+| `mobility_id_uploads` (licence photos, SINs)       | **not imported** (PLAN.md §5.9)                                                                                          |
 
-## Running it
+### Running it
 
 As the project's `postgres` role, in one go (the script is one transaction
 plus a reconciliation query):
@@ -32,12 +38,11 @@ The last result row reconciles: `legacy_rows_missing` must be `0`, and
 `legacy_mobility`. `crm_new` counts the site's active leads nobody has
 opened in the CRM: only leads that came through the CRM's intake.
 
-## Re-running it
+### Re-running it
 
 Run it again **right before staff move to the CRM**, and whenever new leads
-reach the legacy tables before the CanadaWide switch (HANDOFF.md §5.1, CanadaWide):
-until then CanadaWide still writes there directly, and the old admin is still
-where staff change statuses and notes. Every run is safe to repeat:
+reach the legacy tables before the staff cutover (HANDOFF.md §3): until
+then the old admin is still where staff change statuses and notes. Every run is safe to repeat:
 
 - a lead is inserted once; later runs carry the old admin's stage and trash
   over, **except onto a lead someone already worked in the CRM** (any timeline
@@ -56,218 +61,48 @@ The ids of notes and tasks are derived from the legacy ids (`md5`, shaped as a
 version-4 UUID so the contracts accept them), which is how a re-run finds what
 an earlier one wrote.
 
-## History
-
-| Date       | Run                                                                                                                                                                                                                                                                                                                    |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-10-27 | First production run: 669 internet + 39 mobility leads (0 missing), 623 contacts, 279 notes, 28 tasks (12 done, 16 open), 129 in the trash; stages and trash matched the legacy rows one for one. A second run left every count and a fingerprint of all leads and tasks unchanged.                                    |
-| 2026-10-27 | Run with the "New" badge (`f5d6639`): 676 internet + 40 mobility rows, 0 missing (6 leads CanadaWide wrote to the legacy tables before its 07:22 UTC switch came over); 712 imported leads each opened by the old admin; 280 notes, 28 tasks, 131 in the trash; `crm_new` 1, the first lead from the CRM's own intake. |
-
 The rehearsal is `apps/backend/tests/canadawide-legacy-import.integration.test.ts`
 (replica legacy tables in `tests/support/legacy-canadawide.ts`, shared with the
 mirror suite under an advisory lock).
 
-# Get Canada Sim historical import
+## Get Canada Sim historical import (finished)
 
-`packages/db/sql/getcanadasim-legacy-import.sql` copies Get Canada Sim's
-`public.orders` and `public.partners` into the CRM's `getcanadasim` site, each
-row **under its own id**, the same way and with the same re-run rules as the
-CanadaWide import above (it reads `public`, writes only `app`).
+`packages/db/sql/getcanadasim-legacy-import.sql` copied `public.orders` and
+`public.partners` into the `getcanadasim` site, each row under its own id: an
+order became a `sim_order` lead with `MS-<order_no>` as its reference (the
+old statuses `paid` and `invoiced` became the order details' payment status
+and carrier commission), a partner application a `partner_application` lead
+(`PT-<partner_no>`), notes became timeline entries by the "Old admin",
+reminders tasks, the files named on an order verified copies on its Documents
+card, and `/track` change requests timeline entries. Partner commission,
+invoices and IP addresses were not imported.
 
-| Get Canada Sim                                                                            | CRM                                                                                                                                                                            |
-| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| an order                                                                                  | a `sim_order` lead; `MS-<order_no>` is its external reference                                                                                                                  |
-| `status`                                                                                  | `stage` (sim_order's stages are Get Canada Sim's statuses, but `paid` → `pending`, `invoiced` → `completed`); `incomplete` is also the lead's status, the rest are `submitted` |
-| `status`, `commission_status`                                                             | `order_details` (migration 0012's mapping): no plan link, quantity 1, the payment status and carrier commission below                                                          |
-| `archived_at`                                                                             | `deleted_at` (the CRM trash, restorable): the archive holds dismissed pending, incomplete and cancelled orders                                                                 |
-| name, email, phone, `country_code`                                                        | the lead's contact fields, and a contact found or created by `lower(btrim(email))`; contacts are shared by every site                                                          |
-| plan, SIM type, arrival, permit, visa, flight, addresses, reference, the customer's note  | `payload` as `{ schemaVersion: 1, payload }`; the plan label as `data.ts` names it today; an address kept in `notes`                                                           |
-| `partner_id`                                                                              | `attribution.partnerCode` = `PT-<partner_no>`                                                                                                                                  |
-| `admin_note`, `partner_note`                                                              | `note` timeline entries by the "Old admin", dated `admin_note_at` / `partner_note_at`                                                                                          |
-| `reminder_at`, `reminder_note`, `reminder_done_at`                                        | a task, as for CanadaWide                                                                                                                                                      |
-| a partner application                                                                     | a `partner_application` lead (stage = its status); `PT-<partner_no>` is its external reference                                                                                 |
-| `sim_number`                                                                              | the staff-only `simNumber` in `payload` (shown in the lead page's Staff details)                                                                                               |
-| `viewed_at` (the old admin's "New" badge)                                                 | an `opened` system entry by the "Old admin" at that time; every partner application is opened too                                                                              |
-| `passport_path`, `permit_path`, `sim_photo_path`, `billing_contract_path`, `license_path` | files on the lead's Documents card (`passport`, `visa`, `sim_photo`, `billing_contract`, `business_licence`), copied verified                                                  |
-| `order_edit_requests` (`/track` change requests)                                          | timeline entries: the request by the customer (its fields and documents, never values) and the old admin's decision                                                            |
-| partner commission, invoices, IP address                                                  | **not imported yet**: they stay in Get Canada Sim's admin until the CRM models them                                                                                            |
+**Do not run it again.** It ran for the last time on the switch day, around
+2026-11-12, when the checkout moved to the CRM. Since the mirror (below) the
+CRM's own orders are in `public.orders` too, and a run would copy the old
+admin's notes, reminders and "opened" marks onto them. The nightly sync job
+`gcs-legacy-sync` that kept the CRM's copy fresh before the switch no longer
+exists.
 
-Since phase 3 an order's payment and the carrier's commission are the
-order's, not stages: an order's `order_details.paymentStatus` is `paid` for
-the statuses paid, verified, delivered, activated, completed and invoiced,
-`not_needed` for cancelled and on_hold, otherwise `pending`; its
-`carrierCommission` is `invoiced` for an invoiced order, else from
-`commission_status` (`invoiced`, `commission_received` → `received`,
-`claw_back` → `clawback`), else `not_yet`. The form no longer carries
-`commissionStatus`. Migration 0012 gave the orders already imported the same
-order details and stages, but it leaves the old `commissionStatus` key in
-their form. So the first import run after 0012 removes that key from every
-order that had one (and only from orders nobody has worked in the CRM, as
-below). Order details and stages already match, unless the old admin changed
-the order since. **Apply 0011 and 0012 first** (the script writes
-`order_details`).
+Both imports write stages directly: they bypass the allowed moves, the gates
+and the flows, so an imported order at Delivered or Activated has no courier,
+tracking or activation details unless staff add them.
 
-**The import writes stages directly.** Since phase 4 staff move a stage only
-along the type's allowed moves, with the dispatch and activation details and the
-documents check (`apps/backend/src/leads/stage-move.ts`), and a move fires the
-site's automation rules. Both imports (this one and CanadaWide's above)
-bypass all of that: they copy the old admin's status into `stage` as it is,
-however far it is from the lead's previous stage, never check or write the
-dispatch and activation details, and never fire an automation rule, so a re-run
-queues no customer email even when a rule is on. An order the import carries to
-Delivered or Activated therefore has no courier, tracking or activation details
-unless staff add them on the lead page. A re-run still skips a lead someone has
-worked in the CRM, as above.
+### The final run (switch day)
 
-**No import from `main`'s old script between 0012 and the phase 3 deploy.**
-The script on `main` before phase 3 writes the old admin's `orders.status`
-straight into `stage`: run after 0012, it would put the 20 orders 0012 moved
-back on `paid`, and 0012 cannot repair them (its data step only touches leads
-whose `order_details` is still `'{}'`, and it never runs twice). In the same
-window staff should not move SIM orders in the old admin. After the deploy,
-re-run verification select 7 of
-[`manual/0011-0012-plans.sql`](manual/0011-0012-plans.sql): `old_stages_left`
-must be `0`. If not, run this branch's import (it maps the statuses), or remap
-the stragglers by hand; for a `paid` row:
-
-```sql
-UPDATE app.leads SET stage = 'pending', order_details = order_details || '{"paymentStatus":"paid"}'::jsonb, updated_at = now() WHERE lead_type = 'sim_order' AND stage = 'paid';
-```
-
-(an `invoiced` row becomes `completed`, with `paymentStatus` `paid` and
-`carrierCommission` `invoiced`).
-
-A later run also carries approved customer edits (name, phone, the order
-form) and the old admin's status (stage and order details) over, unless
-someone worked the lead in the CRM. An unfinished
-checkout falls under the CRM's 90-day rule for abandoned forms (SEC-12): its
-contact details are erased from the CRM's copy 90 days after its last change.
-The reconciliation row must show `rows_missing` and `stage_mismatches` at `0`
-(`stage_mismatches` compares with the mapping applied: a `paid` order on a
-`pending` lead matches). The rehearsal is `apps/backend/tests/getcanadasim-legacy-import.integration.test.ts`.
-The import runs one last time on switch day, when the checkout moves to the
-CRM; see [The final run (switch day)](#the-final-run-switch-day) below.
-
-**Nightly sync (2026-11-07 to the switch, around 2026-11-12; it no longer
-exists).** Until switch day the old admin stayed the
-working system (owner decision, "Option A"), and the CRM is kept current every
-night: pg_cron job `gcs-legacy-sync` runs `app.sync_getcanadasim_legacy()` at
-20:00 UTC (02:00 Bangladesh), the script above wrapped in a function
-([manual/gcs-nightly-sync.sql](manual/gcs-nightly-sync.sql), applied as the
-Supabase migration `gcs_nightly_sync`). Same re-run rules: a lead worked in the
-CRM keeps the CRM's version, so staff only view orders in the CRM until the
-switch. Its runs are in `cron.job_run_details`. **On switch day, after the
-final import:** `select cron.unschedule('gcs-legacy-sync');`. If the script
-changes, re-apply the function from the changed script.
-
-**Documents** are not copied by the script itself: it queues one
-`legacy_document_import` outbox job per file Get Canada Sim keeps in the
-`documents` bucket (only where Supabase's `storage.objects` lists it, and only
-for a lead that is not restricted), and the backend's outbox copies each one
-within minutes:
-
-- The copy lands in the CRM's own part of the bucket
-  (`workspaces/<site>/candidate/<site>/legacy-<file id>`) and is verified like
-  any upload: at most 10 MB, a PDF, JPEG or PNG by its bytes, its SHA-256
-  recorded. Get Canada Sim's original is only read, never moved or deleted.
-- The file shows as from the "Old admin", dated when the customer gave it.
-  It takes the job's message id, so a rerun of a job imports nothing twice.
-- The job's key carries the object's storage version: a file replaced in the
-  old admin (Get Canada Sim overwrites under the same name) arrives as a
-  newer revision, which becomes the current one; an unchanged file is never
-  queued twice.
-- A lead that is gone or restricted, or a file no longer in storage, completes
-  as `skipped:…`; bytes that are not a document fail the job
-  (`document_unsupported_signature`, `document_too_large`) so the owner alert
-  shows it.
-- **Deploy the backend first.** A backend without the handler fails such jobs
-  as `handler_not_registered`.
-
-The reconciliation row adds `documents_queued` (still to run),
-`documents_failed` and `crm_documents` (current files from the old admin);
-after the outbox has run, `documents_queued` and `documents_failed` should be
-`0` and `crm_documents` the number of files Get Canada Sim names that exist.
-
-**Change requests** (`order_edit_requests`) become two timeline entries each,
-written once and never rewritten: the request, dated when the customer sent
-it, and the old admin's decision, dated when it was made. A request still
-pending gets its decision entry on the first run after it is decided; until
-then the lead page shows it as waiting in the old admin. `change_requests` in
-the reconciliation row counts the requests on the CRM's timelines. **Deploy
-the backend and the admin first**, and once the entries are in, never roll
-the admin back to a build older than `9630b76`: the admin reads every
-response against its own contract, so an older build fails to open a lead
-page that has them.
-
-| Date       | Run                                                                                                                                                                                                                                                                                                                   |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-10-27 | First production run: 138 orders + 5 partner applications (0 missing, 0 stage mismatches), 44 archived orders in the trash, 14 staff notes, 21 reminders as tasks.                                                                                                                                                    |
-| 2026-10-27 | Run with the "New" badge (`f5d6639`): the same counts; all 138 orders had been opened in the old admin, so 143 `opened` entries and `crm_new` 0.                                                                                                                                                                      |
-| 2026-10-27 | Run with documents (`081d478`): the same counts; 121 copies queued (50 passports, 51 approval letters, 9 billing contracts, 7 SIM photos, 4 licences), all completed in 9 minutes, about 2.5 s each; 121 current files on 60 leads, each matching its original's size and type, 121 `file.imported` audits, 0 failed. |
-| 2026-10-27 | Run with change requests (`9630b76`): the same counts, documents unchanged (121, none queued or failed); all 69 requests on 57 orders came over as 137 entries: 69 requests, 64 approvals, 4 rejections, and 1 request still waiting in the old admin.                                                                |
-
-## The final run (switch day)
-
-On switch day (merge phase 5, HANDOFF.md §5.1) Get Canada Sim's checkout moves to
-the CRM and the import runs one last time. The seed and the checks are in
-[`manual/gcs-switch-day.sql`](manual/gcs-switch-day.sql). Run it as the
-import is run: Supabase SQL editor, as `postgres`, one block at a time.
-
-1. Staff resolve the pending change requests in the old admin.
-2. Run the `SEED` block, then turn the website's `CRM_ORDERS` flag on
-   (Vercel production, redeploy). The seed sets `app.site_counters`
-   (`sim_order_ref`) to the highest `public.orders.order_no` plus 9. From the
-   flip on, every new order is a CRM lead numbered `MS-<n>` from that counter,
-   so the CRM's first order is at least the highest `order_no` plus 10. An
-   order started on the old checkout between the seed and the flip takes one
-   of the nine numbers in between, and the final import brings it in under
-   its own `MS-<order_no>`. The same block seeds the change request counter
-   (`change_request_no`) to the highest `public.order_edit_requests.request_no`
-   plus 9 (pre-flight PF3), so a request made in the old admin before the
-   flip and imported afterwards keeps its own number and never shares one
-   with a request made through the CRM's tracking. The seed only ever raises
-   either counter (`greatest`), so running it twice is harmless. Its two
-   check selects show each `last_value` beside the old system's highest
-   number.
-3. Run the import (`packages/db/sql/getcanadasim-legacy-import.sql`) exactly
-   as before. It creates the leads of orders the old checkout took before the
-   flip and refreshes the imported ones from `public.orders`
-   (`on conflict (id) do update`, with the rules above). That is safe on this
-   day because staff worked those orders in the old admin until now. It never
-   touches a CRM order, since a CRM order's id is not in `public.orders`.
-   **Do not run it again after switch day**: after the flip nothing flows
-   from `public.orders` to the CRM, and staff work orders only in the CRM.
-   Once migration 0041 is applied the CRM's own orders are in
-   `public.orders` too ([After the switch](#after-the-switch-the-mirror-migration-0041)),
-   and a run would copy the old admin's notes, reminders and "opened" marks
-   onto them.
-4. Run the `RECONCILE` selects one at a time:
-   1. `rows_missing` must be `0`, and `imported_orders` must equal
-      `gcs_orders`.
-   2. No `MS-` reference may be held by more than one lead of the site.
-   3. The CRM's own orders (`MS-` leads whose id is not in
-      `public.orders`) must each be numbered above the seed.
-   4. Write down the counter's `last_value` (and the change request
-      counter's, from the seed's second check select).
-
-So the order is: the seed, the flip, the import, then reconcile.
-
-**A production test order before the day** (pre-flight PF2): before the
-first one, run the `SEED` block once with `+ 1000` in place of both `+ 9`
-(the second is the change request counter's: a test change request made
-through the CRM before the day then takes a number the old admin will not
-reach). A test
-order placed before switch day takes `MS-<highest order_no + 1001>` and keeps
-that number even after staff archive it (the unique index ignores
-`deleted_at`). The old checkout keeps numbering from the highest `order_no`
-until the flip, so with no gap it would reach the test order's number and
-the final import would fail on `leads_workspace_type_external_ref_unique`.
-The switch-day seed's `greatest` never lowers the counter below the test
-order.
+Done around 2026-11-12: staff resolved the old admin's pending change
+requests, the `SEED` block of
+[`manual/gcs-switch-day.sql`](manual/gcs-switch-day.sql) raised the site's
+counters (`sim_order_ref` and `change_request_no`) past the old system's
+highest numbers, `CRM_ORDERS` went on, the import ran once more and the
+`RECONCILE` selects were checked. The paste file is kept because the "switch
+day" suite in `apps/backend/tests/getcanadasim-legacy-import.integration.test.ts`
+runs its blocks verbatim. The day's two seed values and whether
+`CRM_TRACKING` is on were not written down (HANDOFF.md §3).
 
 ### Rollback
 
-Undo the switch day one flag at a time, the newer first.
+Undo the switch one flag at a time, the newer first.
 
 1. **Prefer turning only `CRM_TRACKING` off** (Vercel production,
    redeploy). That is safe: `/track` falls back to the read-only view of
@@ -293,57 +128,25 @@ Undo the switch day one flag at a time, the newer first.
    board takes the new old-checkout orders, so staff work two systems until
    the flag is back on.
 
-The rehearsal is the "switch day" suite in
-`apps/backend/tests/getcanadasim-legacy-import.integration.test.ts`. It runs
-the `SEED` and `RECONCILE` blocks verbatim. Orders 141 to 143 are imported,
-the seed gives `last_value` 152, and the CRM's first order is `MS-153`. Order
-144, taken by the old checkout in the window, then imports as `MS-144` with
-no unique violation, and the import leaves `MS-153` untouched (its stage,
-form and timeline). A second seed after the counter reached 160 leaves 160.
-Reconciliation shows 0 missing, no duplicated reference and one CRM order. A
-second case runs the `+ 1000` seed: the test order is `MS-1144` (then
-archived), the old checkout's 144 and 1143 import cleanly, the switch-day
-seed gives 1152 and the next order is `MS-1153`. The change request
-counter is rehearsed the same way: the seed gives the highest `request_no`
-plus 9 (plus 1000 before a test request), a second seed never lowers it, and
-the CRM's next request number is the highest plus 10.
+## After the switch: the mirror
 
-## After the switch: the mirror (migration 0041)
+Migration 0041 copies each Get Canada Sim order into `public.orders` the
+moment it is submitted, so the old Get Canada Sim admin keeps receiving
+orders until the owner retires it. The CRM stays the system the website
+writes to. Operating notes, verify selects and how to retire it:
+[database.md](database.md#the-legacy-mirrors-0002-0005-0006-0041-temporary).
 
-Get Canada Sim switched its checkout to the CRM around 2026-11-12 (`CRM_ORDERS`
-on; the seed and the final import above). Since then every new order is a
-`sim_order` lead of the `getcanadasim` site numbered `MS-<n>` from the site's
-counter, and nothing reached `public.orders`, so the old Get Canada Sim admin
-stopped at 2026-11-12 06:10 UTC. The owner keeps the old admin for now ("both
-the new CRM and the old admin should receive the orders"): migration 0041
-copies each order into `public.orders` the moment it is submitted, and its
-backfill copies the ones taken since the switch (docs/RUNBOOKS/database.md,
-0041). The CRM stays the system the website writes to.
+**When.** The copy runs on the statement that makes the lead `submitted`
+(the insert of a submitted lead, the website's submitting `PATCH`, or a staff
+move that rescues a checkout), in the same transaction, with the order as it
+then stands. Drafts are never copied: the old table requires a name, email
+and phone. Once copied, the row is never written by the CRM again.
 
-**When.** The website's checkout creates a draft (`incomplete`; a draft may
-have no name or email yet, and its documents are uploaded against it), saves
-it with `PATCH`, then submits it with a `PATCH` carrying `submit: true`; a
-one-shot create may submit at once; staff may rescue a draft by moving it on.
-The copy runs on the statement that makes the lead `submitted` (the INSERT of
-a submitted lead, or the UPDATE that changes its status), in the same
-transaction, with the order as it then stands. Drafts are never copied: the
-old table requires a name, email and phone, and the CRM erases an abandoned
-draft's details after 90 days. Once copied, the row is never written by the
-CRM again.
-
-**A rescued order completed later** (migration 0048, issue #85). Staff can
-rescue a checkout that has no name or email yet; 0041 skips it (the old table
-requires both) and, the contact being corrected later without any change of
-status, never looked again. Since 0048 the trigger also watches the lead's
-`full_name` and `email` (the copy reads the lead's own columns, which a staff
-correction writes; the shared `app.contacts` row is never read): a submitted
-order is copied the moment its name and email are both present for the first
-time, through the same function, so an existing row is never written and
-there is one legacy order per order number. A later correction of an order
-already complete copies nothing. 0048's backfill copied, once, every
-submitted order skipped before it that had a name and email by then; it is
-safe to run again (it changes nothing). An order still missing one of them
-waits until staff complete it.
+**A rescued order completed later.** Staff can rescue a checkout that has no
+name or email yet; 0041 skips it. Migration 0048 (**not applied yet**,
+[database.md](database.md#0048-not-applied-yet)) makes the trigger also watch
+the lead's `full_name` and `email`, so such an order is copied the moment
+both are present for the first time.
 
 **The mapping**, the import's turned around (`form` is the lead's
 `payload.payload`, `order` its `order_details`):
@@ -366,27 +169,18 @@ waits until staff complete it.
 | `passport_path`, `permit_path`, `sim_photo_path`, `billing_contract_path`                      | null: documents stay in the CRM (below)                                                                                                                                  |
 | `admin_note`, `partner_note`, reminders, `viewed_at`, `ip_address`, `order_edit_requests` rows | null or nothing: notes and tasks are the CRM's timeline, the CRM keeps no IP address, a CRM order's change requests are the CRM's; the old admin's "New" badge starts on |
 
-**Documents.** The CRM keeps the customer's files in the same Supabase bucket
-(`documents`), but as its own verified objects
-(`workspaces/<site>/candidate/…`). Pointing `passport_path` at them would let
-the old admin, which replaces a file in place under the same name, overwrite
-or delete the CRM's verified copy, and the copy runs before staff or the
-customer add later files. So the paths stay empty and nothing is copied: staff
-open an order's documents on the CRM's lead page.
+**Documents** are not copied and the path columns stay empty: the old admin
+replaces a file in place under the same name, so pointing it at the CRM's
+verified objects would let it overwrite them. Staff open an order's
+documents on the CRM's lead page.
 
-**Not synced after the order is created**, as for CanadaWide's mirror: the
-old admin's changes stay in `public.orders`, and the CRM's stage moves, edits,
-archive, documents, notes and a customer's erasure stay in the CRM. Staff
-should work each order in one place (the CRM). An erasure done in the CRM must
-be repeated by hand in the old admin.
+**Not synced after the order is created**, in either direction, as for
+CanadaWide's mirror. Staff should work each order in one place (the CRM). An
+erasure done in the CRM must be repeated by hand in the old admin.
 
 **Skips.** A row with the same id or the same `order_no` is left as it is
 and the CRM's write goes on; a legacy-side error is caught the same way.
 Each skip logs `getcanadasim legacy mirror: lead <id> not copied (<reason or
 SQLSTATE>)` at LOG level (Supabase → Logs → Postgres), with no customer data.
-The database runbook's verify select 3 lists any submitted order without its
-row.
 
-The rehearsal is `apps/backend/tests/getcanadasim-legacy-mirror.integration.test.ts`
-(replica tables in `tests/support/legacy-getcanadasim.ts`, shared with the
-import suite under its advisory lock).
+The rehearsal is `apps/backend/tests/getcanadasim-legacy-mirror.integration.test.ts`.

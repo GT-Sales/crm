@@ -1,27 +1,69 @@
-# Ask AI: confirmed tasks and notes (version 2 foundation)
+# Ask AI: cards and confirmation
 
-Version 3 extends these foundations with editable cards, guided questions and
-reviewed customer email. See [interactive-ai.md](interactive-ai.md) for the
-current scope and address-binding/revision behavior.
+Ask AI never writes. A model tool call only **prepares a card**: a signed
+proposal of one change, shown to the member with Confirm and Cancel. The
+model has no write-store reference and cannot confirm a card, including when
+chat text or a record says "confirm". Every change Ask AI can make is one of
+the card kinds below; there is no direct write tool, bulk operation or
+autonomous action.
 
-Version 2 adds two operations to the existing site-scoped assistant: prepare a
-follow-up task and prepare a note. A model tool call only prepares a card. It has
-no write-store reference and cannot confirm a card, including when chat text or
-a record says "confirm". All other writes remain outside the assistant.
+| Card                                | What Confirm does                                                                                                     |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `note`                              | Adds a note to one lead (up to 4,000 characters).                                                                     |
+| `task`                              | Creates a follow-up task for one lead, or a plain task, for any active member or nobody (title up to 200 characters). |
+| `task_update`                       | Changes one task's status, title, due date or assignee.                                                               |
+| `email`                             | Queues a plain-text email the member reviewed to the lead's own customer, from the site's sender.                     |
+| `template_email`                    | Queues one of the templates staff send by hand (today `sim_number_ready`).                                            |
+| lead update                         | Changes one field of a lead: stage, assignee, customer name or phone.                                                 |
+| `lead_edit`                         | Changes a lead's stage, order details, form fields and custom values in one signed diff.                              |
+| `lead_archive`                      | Archives or restores one lead.                                                                                        |
+| `automation_off`                    | Switches one flow off. Nothing switches a flow on or activates one.                                                   |
+| automation proposal (its own route) | Saves a flow **draft** explicitly at the flow's expected revision; publishing and switching on stay in the builder.   |
 
-Each card names the Site and lead, shows the exact note text or task title,
-calendar due date and assignee (any active member or unassigned, "Wider
-cards" below), and offers
-Confirm and Cancel. Note text is limited to 4,000 characters and task titles to
-200, matching the existing forms. Ambiguous targets or dates must be clarified.
-The server resolves the lead through the existing active/unrestricted Site read;
-no model-supplied actor, Site, destination URL or staff identity is accepted.
+What stays with a person on the CRM's own screens: the customer's email
+address, the documents override, sensitive properties, bulk edits, deleting
+anything, and switching a flow on.
+
+Each card names the Site and lead and shows exactly what will be saved.
+Ambiguous targets, members or dates must be clarified, never guessed
+(`askFollowUp` puts one question with two to five choices; a picked choice
+grants no authority and is never the Confirm button). The server resolves the
+lead through the active, unrestricted Site read; no model-supplied actor,
+Site, destination URL, recipient or staff identity is accepted.
+
+## Editing a card, written email, one-field updates
+
+- **Edit.** A pending card has an Edit form. Update draft calls the revise
+  route, which validates the old signed token, keeps the lead and the card
+  kind, rechecks live permissions and returns a fresh signed card. A revision
+  saves no business data. Editing is possible only before a save attempt:
+  while saving, or after an uncertain response, the card cannot change and
+  Retry save uses its unchanged token.
+- **Written email.** `prepareEmail` drafts plain text for one lead's
+  customer. The To and From addresses are resolved by the backend, signed
+  with the draft, shown on the card only and never given to the model. Send
+  rechecks both against the signed preview (a changed address needs a new
+  draft) and goes through the site's sender, the outbox, suppression and
+  delivery checks, under the key `ai_email:<signed action id>`. No inbox
+  reading, arbitrary recipients, attachments or bulk mail. The receipt says
+  queued, not delivered.
+- **One-field lead update.** `prepareLeadUpdate` signs the field, the
+  proposed value and a backend-read version; `getLeadUpdateOptions` supplies
+  the stages or the first 24 active members. Confirm locks the lead, checks
+  the exact preview version and calls `applyLeadUpdate`, the staff edit's own
+  path, so allowed moves, gates, the documents check and flows all apply. A
+  stage choice that still needs dispatch details, an activation date or
+  approved documents is marked and makes no one-field card (`needs_lead_page`;
+  a move that needs details can be a `lead_edit` card, which carries them).
+  If a gate refuses at Confirm, the answer is the staff edit's own error
+  (`http/lead-update-errors.ts`), never `conflict`.
 
 ## Confirmation boundary
 
 The backend signs an immutable action id, actor, Site, expiry and validated draft.
-The HMAC key is derived with the domain `gt-sales/ai-action/v1` from the existing
-server-only Gateway key. Rotation invalidates outstanding cards. Cards expire
+The HMAC key is derived with the domain `gt-sales/ai-action/v1` from
+`AI_ACTION_SIGNING_SECRET` (the Gateway key while that is unset). Rotation
+invalidates outstanding cards. Cards expire
 ten minutes after preparation. Tokens stay in browser memory and are never
 included in model tool results, chat history, URLs or logs.
 
@@ -36,8 +78,8 @@ The store locks the lead and rechecks archive/restriction status. The signed
 action id becomes the new note/task primary key. A retry, including concurrent
 requests on different backend replicas, finds that same record under the lead
 lock instead of inserting another, updating the lead twice or producing another
-audit/timer. Normal forms keep their existing generated ids. No migration,
-pending-action table or new deployment secret is needed.
+audit/timer. Normal forms keep their existing generated ids. There is no
+pending-action table.
 
 Notes use the existing timeline and `lead.note_added` audit. Tasks use the
 existing task store, due timers and `lead.task_created` audit. Both add the
@@ -52,15 +94,11 @@ A task card may name no lead: a **plain task** (`AGENTS.md`, vocabulary). The
 `leadHref` are too; the card reads "No lead" and links nowhere. The
 `prepareTask` tool takes `leadId` as a required, nullable field, so the model
 says "no lead" with `null` rather than leaving the id out by accident; a given
-id is still checked through the same active, unrestricted Site read. Until
-migration 0038 is applied the tool answers `not_available` for `null`, its
-description and the system prompt say every task needs a lead, and
-capabilities list `taskActions: ['task_update']` only. Confirmation rechecks
+id is still checked through the same active, unrestricted Site read. Confirmation rechecks
 `workspace.read` and `lead.manage` and calls `createPlainTask`, the store
 function the staff `POST /workspaces/:id/tasks` route calls, with the signed
 root id as the task's id (an advisory lock on that id stands in for the lead
-lock, so concurrent retries find one task); before 0038 it answers `503
-plain_tasks_unavailable`. A revision keeps the card plain: an edited draft that
+lock, so concurrent retries find one task). A revision keeps the card plain: an edited draft that
 names a lead is refused as `invalid_request`.
 
 A **`task_update` card** (`{ kind: 'task_update', taskId, status }`) moves one
@@ -77,10 +115,8 @@ keyed by the draft's root id) when the move was already saved, refuses a task
 on an archived lead (`409 lead_trashed`), a gone one (`404 task_not_found`)
 and a stale card (`409 conflict`, as a stale lead update is): one whose task's
 update time is no longer the signed version, or whose status is no longer the
-signed one, which also catches the nightly Get Canada Sim sync
-(`manual/gcs-nightly-sync.sql`), which changes an imported task's status,
-title and completion time without touching its update time. Then it makes the
-same change the
+signed one (which also catches a change made straight in the database
+without touching the update time). Then it makes the same change the
 staff `PATCH` makes (`applyTaskUpdate`: the completion time set or cleared,
 the `lead.task_updated` audit with `aiActionId`, a lead task's overdue clock)
 and writes the receipt in the same transaction. Editing the card changes only
@@ -88,8 +124,7 @@ the new status. A refused revision answers for the task, never with
 `lead_not_found`: `404 task_not_found` when the task is gone, and otherwise
 `409 conflict` with the tool's `details.reason` (`already_in_stage`,
 `task_unavailable` when its lead is archived or restricted,
-`temporary_failure`); a plain-task card's revision before 0038 answers `503
-plain_tasks_unavailable`. A lead's card (a note, an email, a lead update, a
+`temporary_failure`). A lead's card (a note, an email, a lead update, a
 lead's task) keeps `404 lead_not_found`.
 
 `listOpenTasks` finds tasks to move: it lists plain tasks beside lead tasks,
@@ -105,8 +140,7 @@ list takes about 0.6 s (the per-statement limit is 5 s), as it did in due-date
 order.
 
 Both are additive on the wire: `actions` in capabilities keeps its four kinds
-and `taskActions` lists `plain_task` (once 0038 is applied) and
-`task_update` beside it, because an older admin's `actions` enum would refuse
+and `taskActions` lists `plain_task` and `task_update` beside it, because an older admin's `actions` enum would refuse
 the whole document. An older admin given a stream `actions` part that holds a
 plain-task or `task_update` card fails to parse that one part and skips it,
 with every card it carried; the rest of the stream reads as before.
@@ -296,17 +330,14 @@ lead; it does not claim nothing was saved. Expired cards require checking the
 lead before requesting a new draft. Permission loss clears private chat. Saved
 actions refresh the open lead and My tasks through a Site-scoped refresh event.
 
-## Verification and rollout
+## Verification
 
-Tests cover altered/expired/cross-actor/cross-Site tokens, permission changes,
-disabled configuration, no writes during preparation, concurrent idempotent
-saves, archive/restriction checks, calendar dates, confirmation/cancellation and
-lost HTTP responses. Authenticated phone/desktop journeys use a deterministic
-model over real backend/database paths. No production customer record is used
-for automated writes. Deploy backend and admin together; old clients ignore the
-new stream part while builds roll. Staff should refresh before using the cards.
+Tests cover altered, expired, cross-actor and cross-Site tokens, permission
+changes, disabled configuration, no writes during preparation, concurrent
+idempotent saves, archive and restriction checks, calendar dates,
+confirmation, cancellation and lost HTTP responses. Authenticated phone and
+desktop journeys use a deterministic model over real backend and database
+paths. No production customer record is used for automated writes.
 
-The existing `AI_ASSISTANT_ENABLED` switch disables reads, preparation and
-confirmation. No API key goes to the browser. There is no direct write tool,
-bulk operation or autonomous action; every change is one of the reviewed
-cards above or of [ai-lead-updates.md](ai-lead-updates.md).
+`AI_ASSISTANT_ENABLED` disables reads, preparation and confirmation
+together. No API key goes to the browser.

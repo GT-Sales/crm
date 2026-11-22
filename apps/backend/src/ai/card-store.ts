@@ -37,12 +37,8 @@ import { findMissingDocuments } from '../leads/documents-check.js';
 import { toLeadOrder } from '../leads/order.js';
 import { planStageMove, todayInToronto } from '../leads/stage-move.js';
 import { isClosingStage } from '../leads/types.js';
-import {
-  applyLeadUpdate,
-  lockLead,
-  type LockedLead,
-  type UpdateLeadWorkOutcome,
-} from '../leads/work-store.js';
+import { applyLeadUpdate, lockLead, type LockedLead } from '../leads/work-writes.js';
+import { type UpdateLeadWorkOutcome } from '../leads/work-types.js';
 import type { Scope, WriteScope } from '../tenant-scope.js';
 import { sideEffectsDigest } from './card-safeguards.js';
 import type { ArchiveLead } from './actions.js';

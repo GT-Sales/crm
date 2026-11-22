@@ -25,7 +25,7 @@ import { resolveSiteSender, type CustomerEmailEnvironment } from '../email/sende
 import type { WriteScope } from '../tenant-scope.js';
 import { loadFlowSite } from './site.js';
 import { evaluateSyntheticConditionGroup } from './conditions.js';
-import { resolvePropertyFor } from '../leads/staff-queries.js';
+import { resolvePropertyFor } from '../leads/lead-filters.js';
 
 export interface SampleLeadState {
   leadType: LeadType;

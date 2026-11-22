@@ -77,6 +77,23 @@ export const createServiceCredentialResponseSchema = z.object({
 
 export type CreateServiceCredentialResponse = z.infer<typeof createServiceCredentialResponseSchema>;
 
+/**
+ * A change to an existing key: the lead types it may send from now on, by the
+ * same rule as a new key's. A revoked key is refused (`409 credential_revoked`).
+ */
+export const updateServiceCredentialRequestSchema = z.object({
+  leadTypes: credentialLeadTypesSchema,
+});
+
+export type UpdateServiceCredentialRequest = z.infer<typeof updateServiceCredentialRequestSchema>;
+
+export const updateServiceCredentialResponseSchema = z.object({
+  credential: serviceCredentialSummarySchema,
+  requestId: z.uuid(),
+});
+
+export type UpdateServiceCredentialResponse = z.infer<typeof updateServiceCredentialResponseSchema>;
+
 export const listServiceCredentialsResponseSchema = z.object({
   credentials: z.array(serviceCredentialSummarySchema),
   requestId: z.uuid(),

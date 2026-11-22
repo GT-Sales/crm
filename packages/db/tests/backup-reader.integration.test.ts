@@ -4,26 +4,11 @@ import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { applyMigrations } from '../src/migrations.js';
-import { setTestBackupReaderPassword, TEST_BACKUP_READER_PASSWORD } from '../src/test-helpers.js';
-
-function getDisposableTestDatabaseUrl(): string | undefined {
-  const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
-  const destructiveTestsEnabled = process.env.DB_TEST_ALLOW_DESTRUCTIVE === '1';
-
-  if (!migrationUrl && !destructiveTestsEnabled && !process.env.CI) return undefined;
-  if (!migrationUrl || !destructiveTestsEnabled) {
-    throw new Error(
-      'Database integration tests require TEST_MIGRATION_DATABASE_URL and DB_TEST_ALLOW_DESTRUCTIVE=1 together.',
-    );
-  }
-
-  const databaseName = decodeURIComponent(new URL(migrationUrl).pathname.slice(1));
-  if (!databaseName.endsWith('_test')) {
-    throw new Error('TEST_MIGRATION_DATABASE_URL must name a disposable database ending in _test.');
-  }
-
-  return migrationUrl;
-}
+import {
+  getDisposableTestDatabaseUrl,
+  setTestBackupReaderPassword,
+  TEST_BACKUP_READER_PASSWORD,
+} from '../src/test-helpers.js';
 
 class RolledBack extends Error {}
 

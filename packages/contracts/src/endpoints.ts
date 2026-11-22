@@ -58,6 +58,8 @@ import {
   createServiceCredentialResponseSchema,
   listServiceCredentialsResponseSchema,
   revokeServiceCredentialResponseSchema,
+  updateServiceCredentialRequestSchema,
+  updateServiceCredentialResponseSchema,
 } from './website-auth';
 import { createExportRequestSchema, createExportResponseSchema } from './exports';
 import { LEAD_EXPORT_CONTENT_TYPE, exportLeadsRequestSchema } from './lead-export';
@@ -374,6 +376,17 @@ export const endpoints: readonly EndpointDef[] = [
     successStatus: 201,
     request: createServiceCredentialRequestSchema,
     response: createServiceCredentialResponseSchema,
+  },
+  {
+    operationId: 'updateServiceCredential',
+    method: 'PATCH',
+    path: '/api/v1/staff/workspaces/{workspaceId}/service-credentials/{credentialId}',
+    summary:
+      'Set the lead types a website service credential may send; a revoked credential is refused (Owner).',
+    auth: 'staff',
+    successStatus: 200,
+    request: updateServiceCredentialRequestSchema,
+    response: updateServiceCredentialResponseSchema,
   },
   {
     operationId: 'revokeServiceCredential',

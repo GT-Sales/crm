@@ -712,9 +712,9 @@ export class DatabaseLeadStore implements LeadStore {
           });
         }
 
-        // Websites keep their own conversion events until phase 3 (docs/PLAN.md
-        // §5.10: the server-side analytics sink was dropped), so intake
-        // queues no analytics job; one with no provider would only fail.
+        // Websites keep their own conversion events (docs/PLAN.md §5.10: the
+        // server-side analytics sink was dropped), so intake queues no
+        // analytics job; one with no provider would only fail.
         if (input.submit) return { lead: toSummary(leadRow), grant: null, replayed: false };
 
         return {

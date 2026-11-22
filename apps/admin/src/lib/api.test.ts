@@ -6,9 +6,11 @@ import {
   getAiUsage,
   getStaffWorkspaces,
   listAiConversations,
+  listWorkspaceMembers,
   renameAiConversation,
   rejectChangeRequest,
   setLeadArchived,
+  updateStaffProfile,
 } from './api.js';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -251,5 +253,91 @@ describe('Ask AI saved chat wrappers', () => {
     expect(String(request.mock.calls[0]?.[0])).toBe(
       `http://localhost:4000/api/v1/staff/workspaces/${WORKSPACE}/ai/usage?period=7`,
     );
+  });
+});
+
+describe('the site members list', () => {
+  const WORKSPACE = '10000000-0000-4000-8000-000000000001';
+  const json = (body: unknown) =>
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  const membersBody = (displayName: string) => ({
+    members: [
+      {
+        membershipId: '30000000-0000-4000-8000-000000000001',
+        actorId: '20000000-0000-4000-8000-000000000001',
+        displayName,
+        roles: ['owner'],
+        isSelf: true,
+      },
+    ],
+    requestId: '70000000-0000-4000-8000-000000000001',
+  });
+
+  it('sends one request for callers that ask at the same moment, and asks again afterwards', async () => {
+    const answers: Array<(response: Response) => void> = [];
+    const request = vi.fn(
+      (_input: string | URL | Request, _init?: RequestInit) =>
+        new Promise<Response>((resolve) => answers.push(resolve)),
+    );
+    vi.stubGlobal('fetch', request);
+
+    const sidebar = listWorkspaceMembers('token', WORKSPACE);
+    const page = listWorkspaceMembers('token', WORKSPACE);
+    // Another site, or another person's token, is another request.
+    const otherSite = listWorkspaceMembers('token', '10000000-0000-4000-8000-000000000002');
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    answers[0]?.(json(membersBody('Ada')));
+    answers[1]?.(json(membersBody('Ada')));
+    expect((await sidebar).members[0]?.displayName).toBe('Ada');
+    expect(await page).toEqual(await sidebar);
+    await otherSite;
+
+    // Nothing is kept: the next call asks the backend again.
+    const later = listWorkspaceMembers('token', WORKSPACE);
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(3));
+    answers[2]?.(json(membersBody('Ada L.')));
+    expect((await later).members[0]?.displayName).toBe('Ada L.');
+  });
+
+  it('never answers a list asked for after a name change with a request sent before it', async () => {
+    const answers: Array<(response: Response) => void> = [];
+    const request = vi.fn(
+      (_input: string | URL | Request, _init?: RequestInit) =>
+        new Promise<Response>((resolve) => answers.push(resolve)),
+    );
+    vi.stubGlobal('fetch', request);
+
+    const before = listWorkspaceMembers('token', WORKSPACE);
+    const change = updateStaffProfile('token', 'Ada L.');
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    answers[1]?.(
+      json({
+        displayName: 'Ada L.',
+        memberships: 1,
+        requestId: '70000000-0000-4000-8000-000000000002',
+      }),
+    );
+    await change;
+
+    const after = listWorkspaceMembers('token', WORKSPACE);
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(3));
+    answers[0]?.(json(membersBody('Ada')));
+    answers[2]?.(json(membersBody('Ada L.')));
+    expect((await before).members[0]?.displayName).toBe('Ada');
+    expect((await after).members[0]?.displayName).toBe('Ada L.');
+  });
+
+  it('lets a failed request go, so the next call tries again', async () => {
+    const request = vi
+      .fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(json(membersBody('Ada')));
+    vi.stubGlobal('fetch', request);
+
+    await expect(listWorkspaceMembers('token', WORKSPACE)).rejects.toBeInstanceOf(TypeError);
+    expect((await listWorkspaceMembers('token', WORKSPACE)).members).toHaveLength(1);
   });
 });

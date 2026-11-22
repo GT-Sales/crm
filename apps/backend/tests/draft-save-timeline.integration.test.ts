@@ -5,7 +5,7 @@ import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
 
 import { customerEmailEnvironmentFromEnv } from '../src/email/senders.js';
-import { toLeadActivity } from '../src/leads/staff-queries.js';
+import { toLeadActivity } from '../src/leads/lead-work-queries.js';
 import { DatabaseLeadStore } from '../src/leads/store.js';
 import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
 import { DatabasePlanStore } from '../src/plans/store.js';
@@ -13,22 +13,7 @@ import {
   ABANDONED_LEAD_RETENTION_DAYS,
   DatabaseAbandonedLeadPruner,
 } from '../src/retention/abandoned-leads.js';
-
-function getDisposableTestDatabaseUrl(): string | undefined {
-  const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
-  const destructiveTestsEnabled = process.env.DB_TEST_ALLOW_DESTRUCTIVE === '1';
-  if (!migrationUrl && !destructiveTestsEnabled && !process.env.CI) return undefined;
-  if (!migrationUrl || !destructiveTestsEnabled) {
-    throw new Error(
-      'Database integration tests require TEST_MIGRATION_DATABASE_URL and DB_TEST_ALLOW_DESTRUCTIVE=1 together.',
-    );
-  }
-  const databaseName = decodeURIComponent(new URL(migrationUrl).pathname.slice(1));
-  if (!databaseName.endsWith('_test')) {
-    throw new Error('TEST_MIGRATION_DATABASE_URL must name a disposable database ending in _test.');
-  }
-  return migrationUrl;
-}
+import { getDisposableTestDatabaseUrl, TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = getDisposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -40,7 +25,6 @@ const OWNER = '87000000-0000-4000-8000-000000008742';
 const WEBSITE = '87000000-0000-4000-8000-000000008743';
 const SCHEDULER = '87000000-0000-4000-8000-000000008744';
 const REQUEST = '87000000-0000-4000-8000-000000008745';
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 const ENV: NodeJS.ProcessEnv = {
   EMAIL_PROVIDER: 'fake',
   NODE_ENV: 'test',

@@ -197,7 +197,7 @@ Every file in it is encrypted to the recovery recipient and stored as
 - `objects/<workspace>/<key>`: every document an `app.files` row or a kept
   file revision in `data.sql` points at, in the `documents` bucket, checked
   against its recorded size and SHA-256. The list is read from the dump
-  itself, so it and the database in the archive are one snapshot (#86). A
+  itself, so it and the database in the archive are one snapshot. A
   changed document fails the run. A missing one does not: a file the dump
   holds as `deleted` counts as purged (`counts.purgedObjects`), and a file it
   holds as available whose object storage no longer has (staff deleted it
@@ -211,7 +211,7 @@ After all of that is uploaded and listed back, the run overwrites
 `heartbeat/latest.json` (not encrypted; ids and counts only), which is what
 the monitor reads.
 
-**A run that completes with missing documents** (owner decision, #86) is
+**A run that completes with missing documents** (owner decision) is
 still a restore point for everything else. It says so four ways, with the
 count and the documents' labels (`<bucket>/<workspace id>/<object key>`,
 opaque server-generated ids, never a file name or anything a customer typed):
@@ -312,7 +312,7 @@ point is unreadable.
 ## 5. Supabase: the `backup_reader` role
 
 Migrations 0007 and 0008 create `backup_reader`, the read-only login the
-backup dumps with ([database.md](database.md#0007_backup_reader--0008_backup_reader_policies)).
+backup dumps with ([database.md](database.md#migrations), 0007 and 0008).
 
 1. **Pre-paste check.** In Supabase → SQL Editor, run:
 
@@ -452,13 +452,13 @@ the database (merge decision 18, docs/PLAN.md §1.1). For documents the order ma
 then the storage objects; never the other way round.** The backup copies every
 object a dumped row points at, so an object deleted before its row is
 tombstoned leaves every nightly backup with a `backup_objects_missing`
-warning (below the run stays green, #86) until the row is fixed. A row
+warning (the run stays green) until the row is fixed. A row
 already tombstoned (`app.files.status = 'deleted'`) is no warning: its
 missing object counts as purged (`counts.purgedObjects` in the manifest). The app
 itself purges that way when a customer replaces a held change-request upload
-and when abandoned-lead erasure runs; until 16 Nov 2026 that broke the backup
-(14–16 Nov had no restore point). So tombstone the row first, then delete the
-object.
+and when abandoned-lead erasure runs. So tombstone the row first, then delete
+the object. (There is no restore point for 14 to 16 Nov 2026: a purged
+object failed those runs before this rule was in the backup.)
 
 A deleted customer stays in the restore points taken before the deletion
 until retention prunes them: up to 30 days in the daily points and up to 12
@@ -512,7 +512,7 @@ redo every deletion made since that restore point.
 
 - **Legacy buckets.** `mobility-ids` (CanadaWide's ID photos, not yet
   imported into `app.files`) and `blog-images` (public) are outside this
-  backup until the cutover and the import (docs/PLAN.md §7). Only the
+  backup until CanadaWide's ID step moves to the CRM (docs/HANDOFF.md §5). Only the
   `documents` bucket is copied.
 - **`public.posts_backup_pickup_fix`** is a leftover one-off table. It is
   dumped like any other `public` table, which does no harm.

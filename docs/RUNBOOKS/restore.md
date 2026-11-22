@@ -133,7 +133,7 @@ The `restore_report` line holds:
   versions, row counts, `counts.referencedObjects` and `exclusions`.
 - `manifest.counts.missingObjects` and `manifest.missingObjects`: documents
   the backup's snapshot held as available but could not copy (the run
-  completed with a warning, #86; absent on older runs and when none). Those
+  completed with a warning; absent on older runs and when none). Those
   documents are not on the target: their file rows are restored, but opening
   one fails. Write the list down with the incident and tell the developer;
   an earlier run may hold them (`objects/<workspace>/<key>` in its

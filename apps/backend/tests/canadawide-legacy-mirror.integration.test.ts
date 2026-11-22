@@ -5,25 +5,7 @@ import { STAFF_SEED_IDS } from '@gt-sales/db/seed';
 
 import { DatabaseLeadStore } from '../src/leads/store.js';
 import { claimLegacyTables, releaseLegacyTables } from './support/legacy-canadawide.js';
-
-function getDisposableTestDatabaseUrl(): string | undefined {
-  const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
-  const destructiveTestsEnabled = process.env.DB_TEST_ALLOW_DESTRUCTIVE === '1';
-
-  if (!migrationUrl && !destructiveTestsEnabled && !process.env.CI) return undefined;
-  if (!migrationUrl || !destructiveTestsEnabled) {
-    throw new Error(
-      'Database integration tests require TEST_MIGRATION_DATABASE_URL and DB_TEST_ALLOW_DESTRUCTIVE=1 together.',
-    );
-  }
-
-  const databaseName = decodeURIComponent(new URL(migrationUrl).pathname.slice(1));
-  if (!databaseName.endsWith('_test')) {
-    throw new Error('TEST_MIGRATION_DATABASE_URL must name a disposable database ending in _test.');
-  }
-
-  return migrationUrl;
-}
+import { getDisposableTestDatabaseUrl, TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = getDisposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -35,7 +17,6 @@ const CANADAWIDE_CANDIDATE = STAFF_SEED_IDS.canadaWideWorkspace;
 const OTHER_WORKSPACE = '12000000-0000-4000-8000-000000000c02';
 const ACTOR = '22000000-0000-4000-8000-000000000c01';
 const REQUEST_ID = '32000000-0000-4000-8000-000000000c01';
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
 const contact = {
   fullName: 'Avery Example',

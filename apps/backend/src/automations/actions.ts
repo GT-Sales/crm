@@ -34,8 +34,8 @@ import {
   insertLeadTask,
   type AutomationAttribution,
   type LeadUpdateContext,
-  type UpdateLeadWorkOutcome,
-} from '../leads/work-store.js';
+} from '../leads/work-writes.js';
+import { type UpdateLeadWorkOutcome } from '../leads/work-types.js';
 import { decideAccess, type StaffAccessSnapshot } from '../staff/authorization.js';
 import type { FireFlowsContext, FireFlowsResult, LiveFlow, RunState } from './engine.js';
 import { notifyStaffStep } from './staff-notification.js';

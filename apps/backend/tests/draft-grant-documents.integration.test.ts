@@ -5,22 +5,7 @@ import { applyMigrations } from '@gt-sales/db/migrations';
 
 import { DatabaseDraftGrantVerifier } from '../src/documents/grant.js';
 import { hashDraftGrantToken } from '../src/leads/token.js';
-
-function getDisposableTestDatabaseUrl(): string | undefined {
-  const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
-  const destructiveTestsEnabled = process.env.DB_TEST_ALLOW_DESTRUCTIVE === '1';
-  if (!migrationUrl && !destructiveTestsEnabled && !process.env.CI) return undefined;
-  if (!migrationUrl || !destructiveTestsEnabled) {
-    throw new Error(
-      'Database integration tests require TEST_MIGRATION_DATABASE_URL and DB_TEST_ALLOW_DESTRUCTIVE=1 together.',
-    );
-  }
-  const databaseName = decodeURIComponent(new URL(migrationUrl).pathname.slice(1));
-  if (!databaseName.endsWith('_test')) {
-    throw new Error('TEST_MIGRATION_DATABASE_URL must name a disposable database ending in _test.');
-  }
-  return migrationUrl;
-}
+import { getDisposableTestDatabaseUrl, TEST_RUNTIME_PASSWORD } from '@gt-sales/db/test-helpers';
 
 const migrationUrl = getDisposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
@@ -30,7 +15,6 @@ const ACTOR = '21000000-0000-4000-8000-000000000f51';
 const LEAD = '41000000-0000-4000-8000-000000000f51';
 const TOKEN = 'gtdg_ci-draft-grant-documents-token';
 const NOW = new Date('2026-11-10T12:00:00.000Z');
-const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
 // Audit L-1: a draft grant uploads and downloads only while its lead is a
 // draft; submitting or archiving the lead ends it.

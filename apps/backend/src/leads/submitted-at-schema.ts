@@ -28,8 +28,3 @@ export async function submittedAtReady(tx: Pick<TenantTransaction, 'execute'>): 
   state = { ready: row?.ready === true, at: now };
   return state.ready;
 }
-
-/** Test seam: forget the cached answer. */
-export function resetSubmittedAtProbeForTests(): void {
-  state = undefined;
-}
