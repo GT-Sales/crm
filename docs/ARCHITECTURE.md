@@ -482,7 +482,13 @@ route answers neutrally and sends nothing and the others answer
   if rejected); never the email. One pending request per lead, replaced in
   place by the customer's next one (`version + 1`). Staff approve or reject
   the version they saw (`expectedVersion`, else `version_conflict`); approval
-  applies the fields through `applyLeadUpdate`. Requests are numbered per
+  applies the fields through `applyLeadUpdate`. A request with no field
+  change whose documents all fill empty slots (the order has no current file
+  of that type) is approved automatically when the upload is finalized
+  (`approveIfOnlyFillingEmptySlots`): the files are released at once, the
+  request is `approved` by the website's credential and the timeline entry
+  carries `automatic: true`; no decision mail goes. A replacement document
+  or any field change still waits for staff. Requests are numbered per
   site from the counter `change_request_no`. `internet` and `mobility` orders
   are listed read-only.
 

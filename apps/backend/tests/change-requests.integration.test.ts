@@ -432,8 +432,110 @@ databaseTest('customer change requests and held documents', () => {
     ).toEqual({ status: 'not_found' });
   });
 
+  it('adds a document straight to an order that has none of that type, without a staff decision', async () => {
+    const lead = await insertLead({ stage: 'pending' });
+    const { fileId } = await heldFile(lead, 'passport');
+    const requestId = crypto.randomUUID();
+    const outcome = await store.attachDocument({
+      ...scope,
+      normalizedEmail: NADIA,
+      requestId,
+      leadId: lead,
+      fileId,
+      now: new Date(),
+    });
+    // The website's answer keeps its shape: the request it made.
+    if (outcome.status !== 'saved') throw new Error(`not saved: ${outcome.status}`);
+    expect(outcome.changeRequest.stagedFiles).toEqual([{ fileId, documentType: 'passport' }]);
+
+    // The file is the order's current passport, on the Documents card.
+    const page = await new DatabaseLeadWorkStore(database).getLead({
+      ...scope,
+      catalog: codePropertyCatalog,
+      leadId: lead,
+      includeWork: true,
+    });
+    expect(page?.documents.map((document) => document.id)).toEqual([fileId]);
+    expect(page?.changeRequest ?? null).toBeNull();
+    const [request] = await admin<{ status: string; resolved_by: string | null }[]>`
+      select status, resolved_by from app.change_requests where lead_id = ${lead}
+    `;
+    expect(request).toEqual({ status: 'approved', resolved_by: scope.actorId });
+    const [approval] = await admin<{ data: Record<string, unknown> }[]>`
+      select data from app.lead_activities
+      where lead_id = ${lead} and data ->> 'event' = 'change_approved'
+    `;
+    expect(approval?.data).toMatchObject({
+      event: 'change_approved',
+      fields: [],
+      documents: ['passport'],
+      automatic: true,
+    });
+    expect(
+      await admin`
+        select action from app.audit_events
+        where request_id = ${requestId} order by created_at, action
+      `,
+    ).toEqual(
+      expect.arrayContaining([
+        { action: 'file.released' },
+        { action: 'lead.change_request_approved' },
+      ]),
+    );
+    // Nothing is left pending for the customer either.
+    const listed = await new DatabaseTrackingStore(database).listOrders({
+      ...scope,
+      normalizedEmail: NADIA,
+    });
+    expect(listed.find((entry) => entry.reference === lead)?.pendingChange).toBeNull();
+
+    // A second passport now replaces one, so it waits for staff.
+    const second = await heldFile(lead, 'passport');
+    const replacing = await store.attachDocument({
+      ...scope,
+      normalizedEmail: NADIA,
+      requestId: crypto.randomUUID(),
+      leadId: lead,
+      fileId: second.fileId,
+      now: new Date(),
+    });
+    if (replacing.status !== 'saved') throw new Error('not saved');
+    const pending = await database.withTenantTx(scope, (tx) =>
+      store.pendingForLead(tx, SITE, lead),
+    );
+    expect(pending?.stagedFiles).toEqual([{ fileId: second.fileId, documentType: 'passport' }]);
+  });
+
+  it('keeps a document waiting for staff when the same request changes a detail', async () => {
+    const lead = await insertLead({ stage: 'pending' });
+    expect((await requestChange(lead, { phone: PHONE })).status).toBe('saved');
+    const { fileId } = await heldFile(lead, 'visa');
+    const outcome = await store.attachDocument({
+      ...scope,
+      normalizedEmail: NADIA,
+      requestId: crypto.randomUUID(),
+      leadId: lead,
+      fileId,
+      now: new Date(),
+    });
+    if (outcome.status !== 'saved') throw new Error('not saved');
+    const pending = await database.withTenantTx(scope, (tx) =>
+      store.pendingForLead(tx, SITE, lead),
+    );
+    expect(pending).toMatchObject({
+      requested: { phone: PHONE },
+      stagedFiles: [{ fileId, documentType: 'visa' }],
+    });
+    const [file] = await admin<{ held: boolean }[]>`
+      select held_for_change_request as held from app.files where id = ${fileId}
+    `;
+    expect(file?.held).toBe(true);
+  });
+
   it('audits a replaced held file only when it was still there to tombstone', async () => {
     const lead = await insertLead({ stage: 'pending' });
+    // The order has a passport already, so each new one waits for staff.
+    await currentPassport(lead);
     const first = await heldFile(lead);
     const join = (fileId: string) =>
       store.attachDocument({
@@ -512,6 +614,7 @@ databaseTest('customer change requests and held documents', () => {
     // A file already joined to a pending request stays for staff to decide.
     deleteObject.mockClear();
     const kept = await insertLead({ stage: 'pending' });
+    await currentPassport(kept);
     const joined = await heldFile(kept);
     expect((await attach(kept, joined.fileId)).status).toBe('saved');
     await admin`update app.leads set stage = 'delivered' where id = ${kept}`;

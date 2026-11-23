@@ -217,6 +217,12 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
      * does not know are named in `fields` and never appear here.
      */
     values: z.array(draftSaveValueSchema).max(50).optional(),
+    /**
+     * For `change_approved`: the CRM approved it without staff, because it
+     * only added documents the order did not have yet (no field change and
+     * no document replaced). The website's credential is the actor.
+     */
+    automatic: z.literal(true).optional(),
     /** For `change_requested`, `change_approved` and `change_rejected`: the documents sent with it. */
     documents: z.array(documentChecklistKeySchema).max(10).optional(),
     /**

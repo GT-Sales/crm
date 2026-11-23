@@ -7453,6 +7453,7 @@
                                   "additionalProperties": false
                                 }
                               },
+                              "automatic": { "type": "boolean", "const": true },
                               "documents": {
                                 "maxItems": 10,
                                 "type": "array",
@@ -8903,6 +8904,7 @@
                                   "additionalProperties": false
                                 }
                               },
+                              "automatic": { "type": "boolean", "const": true },
                               "documents": {
                                 "maxItems": 10,
                                 "type": "array",
@@ -10182,6 +10184,7 @@
                                   "additionalProperties": false
                                 }
                               },
+                              "automatic": { "type": "boolean", "const": true },
                               "documents": {
                                 "maxItems": 10,
                                 "type": "array",
@@ -11294,6 +11297,7 @@
                                   "additionalProperties": false
                                 }
                               },
+                              "automatic": { "type": "boolean", "const": true },
                               "documents": {
                                 "maxItems": 10,
                                 "type": "array",
@@ -12404,6 +12408,7 @@
                                     "additionalProperties": false
                                   }
                                 },
+                                "automatic": { "type": "boolean", "const": true },
                                 "documents": {
                                   "maxItems": 10,
                                   "type": "array",
@@ -13454,6 +13459,7 @@
                                     "additionalProperties": false
                                   }
                                 },
+                                "automatic": { "type": "boolean", "const": true },
                                 "documents": {
                                   "maxItems": 10,
                                   "type": "array",
@@ -14316,6 +14322,7 @@
                                     "additionalProperties": false
                                   }
                                 },
+                                "automatic": { "type": "boolean", "const": true },
                                 "documents": {
                                   "maxItems": 10,
                                   "type": "array",
@@ -15366,6 +15373,7 @@
                                     "additionalProperties": false
                                   }
                                 },
+                                "automatic": { "type": "boolean", "const": true },
                                 "documents": {
                                   "maxItems": 10,
                                   "type": "array",
@@ -15991,6 +15999,7 @@
                                 "additionalProperties": false
                               }
                             },
+                            "automatic": { "type": "boolean", "const": true },
                             "documents": {
                               "maxItems": 10,
                               "type": "array",
@@ -16639,6 +16648,7 @@
                                 "additionalProperties": false
                               }
                             },
+                            "automatic": { "type": "boolean", "const": true },
                             "documents": {
                               "maxItems": 10,
                               "type": "array",
