@@ -352,6 +352,72 @@ databaseTest('approving and rejecting change requests', () => {
     ).toEqual({ status: 'resolved' });
   });
 
+  it('replaces a waiting document before approval, and an approved one only after the next approval', async () => {
+    const leadId = await insertLead(SITE, DEFAULT_EMAIL);
+    const normalizedEmail = DEFAULT_EMAIL.toLowerCase();
+    const scope = { workspaceId: SITE, actorId: CREDENTIAL, requestId: crypto.randomUUID() };
+    const send = async (fileId: string) => {
+      const sent = await store.attachDocument({
+        ...scope,
+        leadId,
+        normalizedEmail,
+        fileId,
+        now: new Date(),
+      });
+      if (sent.status !== 'saved') throw new Error(`not saved: ${sent.status}`);
+      return sent.changeRequest;
+    };
+    const currentDocuments = async () =>
+      (
+        await work.getLead({
+          workspaceId: SITE,
+          actorId: STAFF,
+          catalog: codePropertyCatalog,
+          leadId,
+          includeWork: true,
+        })
+      )?.documents.map((document) => document.id);
+
+    // Before approval: the second upload replaces the first in the waiting request.
+    const first = await heldPassport(SITE, leadId);
+    await send(first.fileId);
+    const second = await heldPassport(SITE, leadId);
+    const waiting = await send(second.fileId);
+    expect(waiting.stagedFiles).toEqual([{ fileId: second.fileId, documentType: 'passport' }]);
+    expect((await fileRow(first.fileId))?.status).toBe('deleted');
+    expect(await currentDocuments()).toEqual([]);
+
+    const approved = await service.approve(
+      decide({ leadId, changeRequestId: waiting.id, expectedVersion: waiting.version }),
+    );
+    expect(approved.status).toBe('approved');
+    expect(await currentDocuments()).toEqual([second.fileId]);
+
+    // After approval: a new upload waits; the approved passport stays current meanwhile.
+    const third = await heldPassport(SITE, leadId);
+    const next = await send(third.fileId);
+    expect(next.id).not.toBe(waiting.id);
+    expect(await currentDocuments()).toEqual([second.fileId]);
+    expect(await fileRow(third.fileId)).toMatchObject({ held: true, status: 'available' });
+
+    // Rejected: the approved passport is kept.
+    const rejected = await service.reject(
+      decide({ leadId, changeRequestId: next.id, expectedVersion: next.version }),
+    );
+    expect(rejected.status).toBe('rejected');
+    expect(await currentDocuments()).toEqual([second.fileId]);
+
+    // Sent again and approved: only now does it replace the approved one.
+    const fourth = await heldPassport(SITE, leadId);
+    const last = await send(fourth.fileId);
+    expect(await currentDocuments()).toEqual([second.fileId]);
+    await service.approve(
+      decide({ leadId, changeRequestId: last.id, expectedVersion: last.version }),
+    );
+    expect(await currentDocuments()).toEqual([fourth.fileId]);
+    expect((await fileRow(second.fileId))?.supersededBy).toBe(fourth.fileId);
+  });
+
   it('refuses the version from before the customer replaced the request, writing nothing', async () => {
     const leadId = await insertLead();
     const scope = { workspaceId: SITE, actorId: CREDENTIAL, requestId: crypto.randomUUID() };
