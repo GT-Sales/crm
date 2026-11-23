@@ -160,7 +160,7 @@ function outcomeText(
   const base =
     outcome.decision === 'approve'
       ? changeRequest.documents.length > 0
-        ? 'Approved. The documents now wait for an Orders review.'
+        ? 'Approved. The documents are now the order’s, approved.'
         : 'Approved.'
       : outcome.skipped
         ? 'Rejected.'

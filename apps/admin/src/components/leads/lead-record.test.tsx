@@ -971,7 +971,7 @@ describe('LeadRecord order details', () => {
         ),
       );
       expect(
-        await screen.findByText('Approved. The documents now wait for an Orders review.'),
+        await screen.findByText('Approved. The documents are now the order’s, approved.'),
       ).toBeTruthy();
       // The record is read again so the approved document lands on the Documents card.
       await waitFor(() => expect(mocks.getStaffLead).toHaveBeenCalledTimes(2));
@@ -980,7 +980,7 @@ describe('LeadRecord order details', () => {
         "You approved the customer's change request #70",
       );
       // The outcome stays on screen after the reload, with the focus on it; the decision buttons do not.
-      const outcome = screen.getByText(/Approved\. The documents now wait/);
+      const outcome = screen.getByText(/Approved\. The documents are now the order/);
       expect(document.activeElement).toBe(outcome);
       expect(screen.queryByRole('button', { name: 'Approve changes' })).toBeNull();
       expect(mocks.rejectChangeRequest).not.toHaveBeenCalled();

@@ -525,20 +525,20 @@ databaseTest('a customer change request, from the tracking code to approval on t
     });
     expect(email.deliveries[1]?.rendered?.text).toContain('Hi Nadia');
 
-    // The customer's list: nothing pending, the passport received.
+    // The customer's list: nothing pending, the passport approved by that one decision.
     expect(await listOrders()).toEqual([
       expect.objectContaining({
         reference,
         pendingChange: null,
         details: expect.objectContaining({ phone: NEW_PHONE, arrivalDate: NEW_ARRIVAL }),
         documents: [
-          { documentType: 'passport', state: 'received' },
+          { documentType: 'passport', state: 'approved' },
           { documentType: 'visa', state: 'missing' },
         ],
       }),
     ]);
 
-    // The Orders member approves the passport; the customer sees it approved.
+    // An Orders member can still review it again later (here: approve once more).
     const reviewed = await call(
       'POST',
       `/api/v1/staff/workspaces/${SITE}/files/${upload.uploadId}/review`,
@@ -546,14 +546,6 @@ databaseTest('a customer change request, from the tracking code to approval on t
       { decision: 'approved' },
     );
     expect(reviewed.status).toBe(200);
-    expect(await listOrders()).toEqual([
-      expect.objectContaining({
-        documents: [
-          { documentType: 'passport', state: 'approved' },
-          { documentType: 'visa', state: 'missing' },
-        ],
-      }),
-    ]);
 
     // The code job kept only the challenge id once it ended.
     const codeJobs = await jobs(TRACKING_CODE_JOB_TYPE);
