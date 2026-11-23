@@ -193,6 +193,9 @@ Backend paths are under `apps/backend/src/`, admin paths under
   `ai-conversations.ts`, `ai-models.ts`; admin `app/w/[workspace]/chat/`,
   `components/ai/` (`chat-screen.tsx`, `model-control.tsx`),
   `components/ai-usage/`, `components/ai-models/`.
+- **Ask AI evaluations**: `docs/evals/` (automation authoring;
+  `model-test/README.md`, the model comparison: seed, prompts, runner,
+  scorer and report under `apps/backend/scripts/model-test/`).
 - **Intake check**: `intake-check/` (`check.ts`, `store.ts`, `alert-rule.ts`),
   `routes/intake-check.ts`. Runbook `docs/RUNBOOKS/intake-check.md`, paste
   file `docs/RUNBOOKS/manual/intake-check-site.sql`.

@@ -482,7 +482,11 @@ route answers neutrally and sends nothing and the others answer
   if rejected); never the email. One pending request per lead, replaced in
   place by the customer's next one (`version + 1`). Staff approve or reject
   the version they saw (`expectedVersion`, else `version_conflict`); approval
-  applies the fields through `applyLeadUpdate`. Requests are numbered per
+  applies the fields through `applyLeadUpdate`. In the lead panel, a request
+  that brings documents also shows on the **Files** tab (the tab counts the
+  documents waiting), where staff view and approve or reject it; one with
+  only documents shows there alone, as "Documents waiting for approval".
+  Requests are numbered per
   site from the counter `change_request_no`. `internet` and `mobility` orders
   are listed read-only.
 

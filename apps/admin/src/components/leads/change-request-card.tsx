@@ -269,6 +269,8 @@ export function ChangeRequestCard({
   }
 
   const done = outcome ? outcomeText(outcome, changeRequest) : undefined;
+  // Only documents, no detail to change: the customer sent files after ordering.
+  const documentsOnly = rows.length === 0 && changeRequest.documents.length > 0;
 
   return (
     <Card>
@@ -276,10 +278,14 @@ export function ChangeRequestCard({
         <section aria-labelledby={headingId} className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
             <h2 id={headingId} className="text-base font-semibold">
-              Change request #{changeRequest.requestNo}
+              {documentsOnly
+                ? `Documents waiting for approval (request #${String(changeRequest.requestNo)})`
+                : `Change request #${String(changeRequest.requestNo)}`}
             </h2>
             <p className="text-sm text-muted-foreground">
-              The customer asked for these changes{' '}
+              {documentsOnly
+                ? 'The customer sent these from their order tracking page'
+                : 'The customer asked for these changes'}{' '}
               <time
                 dateTime={changeRequest.updatedAt}
                 title={dateTimeLabel(changeRequest.updatedAt)}
@@ -323,7 +329,7 @@ export function ChangeRequestCard({
 
           {changeRequest.documents.length > 0 ? (
             <div className="flex flex-col gap-1 text-sm">
-              <p>Documents sent with it:</p>
+              {documentsOnly ? null : <p>Documents sent with it:</p>}
               <ul className="flex flex-col gap-2">
                 {changeRequest.documents.map((document) => {
                   const label = documentLabel(document.documentType);
@@ -384,7 +390,7 @@ export function ChangeRequestCard({
                   disabled={busy}
                   onClick={() => void decide('approve')}
                 >
-                  Approve changes
+                  {documentsOnly ? 'Approve documents' : 'Approve changes'}
                 </Button>
                 <Button
                   type="button"

@@ -1,0 +1,5 @@
+Call notes (synthetic test data)
+Caller: Casey Mockford, SIM order MS-1003
+- Casey will be travelling until the 15th and asked us to hold the delivery until then.
+- She confirmed her address is unchanged.
+- She will pay the outstanding balance by card when the SIM arrives.

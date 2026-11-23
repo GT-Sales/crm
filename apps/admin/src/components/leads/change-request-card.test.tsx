@@ -198,7 +198,12 @@ describe('ChangeRequestCard', () => {
         ],
       }),
     });
-    expect(screen.getByText('Documents sent with it:')).toBeTruthy();
+    // Documents alone read as documents waiting for approval, approved as documents.
+    expect(
+      screen.getByRole('heading', { name: 'Documents waiting for approval (request #70)' }),
+    ).toBeTruthy();
+    expect(screen.queryByText('Documents sent with it:')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Approve documents' })).toBeTruthy();
     const passport = screen.getByRole('listitem', { name: 'Passport' });
     fireEvent.click(within(passport).getByRole('button', { name: 'View Passport' }));
     expect(openDocument).toHaveBeenCalledWith(PASSPORT_FILE);
