@@ -881,6 +881,35 @@ describe('LeadRecord order details', () => {
       });
     }
 
+    it('puts documents sent on their own on the Files tab, with the count and Approve', async () => {
+      mocks.getStaffLead.mockResolvedValue(
+        loaded({ changeRequest: { ...pending, fields: {} }, documents: [] }),
+      );
+      render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} variant="panel" />);
+      const files = await screen.findByRole('tab', { name: /Files/ });
+      expect(within(files).getByLabelText('1 waiting for approval')).toBeTruthy();
+      // Not on Home: staff look for an order's files on the Files tab.
+      expect(screen.queryByRole('heading', { name: /request #70/ })).toBeNull();
+      fireEvent.mouseDown(files, { button: 0 });
+      expect(
+        screen.getByRole('heading', { name: 'Documents waiting for approval (request #70)' }),
+      ).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Approve documents' })).toBeTruthy();
+      expect(screen.queryByRole('heading', { name: 'No files yet' })).toBeNull();
+    });
+
+    it('shows a request with changes and documents on both Home and Files', async () => {
+      mocks.getStaffLead.mockResolvedValue(loaded());
+      render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} variant="panel" />);
+      expect(await screen.findAllByRole('heading', { name: 'Change request #70' })).toHaveLength(1);
+      fireEvent.mouseDown(screen.getByRole('tab', { name: /Files/ }), { button: 0 });
+      const visible = screen
+        .getAllByRole('heading', { name: 'Change request #70' })
+        .filter((heading) => heading.closest('[hidden]') === null);
+      expect(visible).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: 'Approve changes' }).length).toBeGreaterThan(0);
+    });
+
     it('shows the card above the timeline, not the old admin banner', async () => {
       mocks.getStaffLead.mockResolvedValue(loaded());
       render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);

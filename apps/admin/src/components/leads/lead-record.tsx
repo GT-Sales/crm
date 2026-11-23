@@ -664,7 +664,13 @@ export function LeadRecord({
   // once that tab has rendered. Focus moves to the card for keyboard users.
   function jumpTo(target: LeadAttentionTarget) {
     if (inPanel)
-      setPanelTab(target === 'documents' ? 'files' : target === 'tasks' ? 'tasks' : 'home');
+      setPanelTab(
+        target === 'documents' || (target === 'change-request' && requestOnFilesOnly)
+          ? 'files'
+          : target === 'tasks'
+            ? 'tasks'
+            : 'home',
+      );
     requestAnimationFrame(() => {
       const element = document.getElementById(anchorId(target));
       if (!element) return;
@@ -1167,6 +1173,13 @@ export function LeadRecord({
     />
   ) : null;
 
+  // A request that brings documents is decided from the Files tab too, where
+  // staff look for an order's files; one that only sends documents lives there.
+  const requestHasDocuments = (shownRequest?.documents.length ?? 0) > 0;
+  const requestHasFields = shownRequest ? Object.keys(shownRequest.fields).length > 0 : false;
+  const requestOnFilesOnly = requestHasDocuments && !requestHasFields;
+  const waitingDocuments = shownRequest?.status === 'pending' ? shownRequest.documents.length : 0;
+
   const customerEmail = lead.contact.email?.trim() || undefined;
   const mailSection = (
     <Card>
@@ -1244,6 +1257,14 @@ export function LeadRecord({
           <TabsTrigger value="files" className="gap-1.5 px-2 text-xs">
             <FilesIcon className="size-3.5" aria-hidden="true" />
             Files
+            {access.contacts && waitingDocuments > 0 ? (
+              <span
+                className="rounded-full bg-amber-500/15 px-1.5 text-[10px] font-medium text-amber-700 tabular-nums dark:text-amber-300"
+                aria-label={`${String(waitingDocuments)} waiting for approval`}
+              >
+                {waitingDocuments}
+              </span>
+            ) : null}
           </TabsTrigger>
           {access.contacts ? (
             <TabsTrigger value="activity" className="gap-1.5 px-2 text-xs">
@@ -1259,7 +1280,9 @@ export function LeadRecord({
           forceMount
           className="flex flex-col gap-3 p-4"
         >
-          {access.contacts ? anchored('change-request', changeRequestSection) : null}
+          {access.contacts && !requestOnFilesOnly
+            ? anchored('change-request', changeRequestSection)
+            : null}
           <div className={DETAILS_SIDEBAR}>
             {contactSection}
             {anchored('order', propertiesSection)}
@@ -1293,10 +1316,21 @@ export function LeadRecord({
             </TabsContent>
           </>
         ) : null}
-        <TabsContent value="files" hidden={activeTab !== 'files'} forceMount className="p-4">
+        <TabsContent
+          value="files"
+          hidden={activeTab !== 'files'}
+          forceMount
+          className="flex flex-col gap-3 p-4"
+        >
+          {/* The customer's uploads waiting for a decision come first, with Approve and Reject. */}
+          {access.contacts && requestHasDocuments
+            ? requestOnFilesOnly
+              ? anchored('change-request', changeRequestSection)
+              : changeRequestSection
+            : null}
           {documents.length > 0 ? (
             anchored('documents', documentsSection)
-          ) : (
+          ) : access.contacts && requestHasDocuments ? null : (
             <Card>
               <CardContent className="flex flex-col items-center gap-2 py-8 text-center">
                 <FilesIcon className="size-6 text-muted-foreground" aria-hidden="true" />
