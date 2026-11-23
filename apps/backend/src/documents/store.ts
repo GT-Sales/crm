@@ -770,57 +770,11 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
           .where(and(eq(files.workspaceId, input.workspaceId), eq(files.id, input.fileId)))
           .limit(1);
         if (!file) return { status: 'not_found' };
-        const [review] = await tx
-          .insert(fileReviewEvents)
-          .values({
-            workspaceId: input.workspaceId,
-            fileId: input.fileId,
-            actorId: input.actorId,
-            decision: input.decision,
-            note: input.note ?? null,
-          })
-          .returning({
-            id: fileReviewEvents.id,
-            decision: fileReviewEvents.decision,
-            note: fileReviewEvents.note,
-            actorId: fileReviewEvents.actorId,
-            createdAt: fileReviewEvents.createdAt,
-          });
-        if (!review) throw new Error('review insert did not return a row');
-        if (file.recordType === 'lead') {
-          // The decision goes on the lead's timeline too; the note stays on the review.
-          const [lead] = await tx
-            .select({ id: leads.id })
-            .from(leads)
-            .where(
-              and(
-                eq(leads.workspaceId, input.workspaceId),
-                eq(leads.id, file.recordId),
-                isNull(leads.customerDataRestrictedAt),
-              ),
-            )
-            .limit(1);
-          if (lead) {
-            await tx.insert(leadActivities).values({
-              workspaceId: input.workspaceId,
-              leadId: lead.id,
-              actorId: input.actorId,
-              kind: 'document',
-              data: {
-                fileId: input.fileId,
-                documentType: file.documentType,
-                decision: input.decision,
-              },
-            });
-          }
-        }
-        await writeAudit(tx, {
-          workspaceId: input.workspaceId,
-          actorId: input.actorId,
-          requestId: input.requestId,
-          action: 'file.reviewed',
-          fileId: input.fileId,
-          after: { decision: input.decision },
+        const review = await insertFileReview(tx, {
+          ...input,
+          recordType: file.recordType,
+          recordId: file.recordId,
+          documentType: file.documentType,
         });
         return {
           status: 'recorded',
@@ -956,6 +910,85 @@ export interface HeldFilesInput {
   actorId: string;
   requestId: string;
   fileIds: readonly string[];
+}
+
+/**
+ * One review of a file: the review row, the lead's timeline entry (unless the
+ * customer's data is restricted) and the audit, in the caller's transaction.
+ */
+export async function insertFileReview(
+  tx: TenantTransaction,
+  input: {
+    workspaceId: string;
+    actorId: string;
+    requestId: string;
+    fileId: string;
+    recordType: string;
+    recordId: string;
+    documentType: string;
+    decision: FileReviewDecision;
+    note?: string;
+  },
+): Promise<{
+  id: string;
+  decision: string;
+  note: string | null;
+  actorId: string;
+  createdAt: Date;
+}> {
+  const [review] = await tx
+    .insert(fileReviewEvents)
+    .values({
+      workspaceId: input.workspaceId,
+      fileId: input.fileId,
+      actorId: input.actorId,
+      decision: input.decision,
+      note: input.note ?? null,
+    })
+    .returning({
+      id: fileReviewEvents.id,
+      decision: fileReviewEvents.decision,
+      note: fileReviewEvents.note,
+      actorId: fileReviewEvents.actorId,
+      createdAt: fileReviewEvents.createdAt,
+    });
+  if (!review) throw new Error('review insert did not return a row');
+  if (input.recordType === 'lead') {
+    // The decision goes on the lead's timeline too; the note stays on the review.
+    const [lead] = await tx
+      .select({ id: leads.id })
+      .from(leads)
+      .where(
+        and(
+          eq(leads.workspaceId, input.workspaceId),
+          eq(leads.id, input.recordId),
+          isNull(leads.customerDataRestrictedAt),
+        ),
+      )
+      .limit(1);
+    if (lead) {
+      await tx.insert(leadActivities).values({
+        workspaceId: input.workspaceId,
+        leadId: lead.id,
+        actorId: input.actorId,
+        kind: 'document',
+        data: {
+          fileId: input.fileId,
+          documentType: input.documentType,
+          decision: input.decision,
+        },
+      });
+    }
+  }
+  await writeAudit(tx, {
+    workspaceId: input.workspaceId,
+    actorId: input.actorId,
+    requestId: input.requestId,
+    action: 'file.reviewed',
+    fileId: input.fileId,
+    after: { decision: input.decision },
+  });
+  return review;
 }
 
 /**

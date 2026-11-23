@@ -289,7 +289,7 @@ describe('ChangeRequestCard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Approve changes' }));
     await waitFor(() => expect(onDecide).toHaveBeenCalledWith('approve', 2));
     expect((await screen.findByRole('status')).textContent).toContain(
-      'Approved. The documents now wait for an Orders review.',
+      'Approved. The documents are now the order’s, approved.',
     );
     expect(onDone).toHaveBeenCalledWith(decided);
     expect(screen.queryByRole('button', { name: 'Approve changes' })).toBeNull();

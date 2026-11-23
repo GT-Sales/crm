@@ -177,7 +177,7 @@ export const CRM_GUIDE_TOPICS: readonly CrmGuideTopic[] = [
       '1. Open the lead (Home tab in the side panel).',
       '2. Press "Approve changes" or "Reject".',
       'Deciding needs the Leads role (or owner). An archived lead must be restored first. When the request was changed or decided by someone else, use "Reload".',
-      'The customer is emailed about the decision. Approved documents then wait for an Orders review on the lead’s Documents card.',
+      'The customer is emailed about the decision. Approving also approves the documents sent with it, which become the order’s documents.',
     ),
   },
   {

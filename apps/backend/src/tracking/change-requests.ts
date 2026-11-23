@@ -25,7 +25,12 @@ import { z } from 'zod';
 
 import { readAutomationLead } from '../automations/run.js';
 import { documentBucket } from '../documents/config.js';
-import { enqueueDeletedFile, releaseHeldFiles, tombstoneHeldFiles } from '../documents/store.js';
+import {
+  enqueueDeletedFile,
+  insertFileReview,
+  releaseHeldFiles,
+  tombstoneHeldFiles,
+} from '../documents/store.js';
 import { composeCustomerEmail } from '../email/compose.js';
 import { queueComposedEmail } from '../email/queue.js';
 import { isPlanAvailable } from '../leads/order.js';
@@ -652,7 +657,20 @@ export class ChangeRequestService {
               throw new Error(`change request approval refused: ${updated.status}`);
             }
             activities.push(...updated.activities);
-            await releaseHeldFiles(tx, held);
+            // One approval: the documents become the order's, already approved
+            // (owner decision, 23 Nov 2026), with no second review to do.
+            for (const file of await releaseHeldFiles(tx, held)) {
+              await insertFileReview(tx, {
+                workspaceId: input.workspaceId,
+                actorId: input.actorId,
+                requestId: input.requestId,
+                fileId: file.id,
+                recordType: file.recordType,
+                recordId: file.recordId,
+                documentType: file.documentType,
+                decision: 'approved',
+              });
+            }
           } else {
             removedObjectKeys = await tombstoneHeldFiles(tx, held);
           }

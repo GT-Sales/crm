@@ -312,6 +312,18 @@ databaseTest('approving and rejecting change requests', () => {
       supersededBy: null,
     });
     expect((await fileRow(oldPassport))?.supersededBy).toBe(passport.fileId);
+    // One approval: the passport is approved too, by the same member, on the timeline.
+    expect(
+      await admin`
+        select decision, actor_id as "actorId" from app.file_review_events
+        where file_id = ${passport.fileId}
+      `,
+    ).toEqual([{ decision: 'approved', actorId: STAFF }]);
+    expect(
+      (await timeline(leadId)).filter(
+        (entry) => entry.kind === 'document' && entry.data['fileId'] === passport.fileId,
+      ),
+    ).toHaveLength(1);
     const page = await work.getLead({
       workspaceId: SITE,
       actorId: STAFF,
@@ -320,7 +332,11 @@ databaseTest('approving and rejecting change requests', () => {
       includeWork: true,
     });
     expect(page?.documents).toEqual([
-      expect.objectContaining({ id: passport.fileId, documentType: 'passport', review: null }),
+      expect.objectContaining({
+        id: passport.fileId,
+        documentType: 'passport',
+        review: expect.objectContaining({ decision: 'approved' }),
+      }),
     ]);
     expect(page?.changeRequest).toBeNull();
 
