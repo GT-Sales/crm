@@ -484,21 +484,6 @@ describe('LeadTimeline', () => {
       expect(rejected?.textContent).toContain("You rejected the customer's change request #71");
       expect(approved?.textContent).toContain("You approved the customer's change request #70");
     });
-
-    it('says when the CRM added the documents itself, naming no one', () => {
-      const region = timeline([
-        crm('change_approved', 72, {
-          fields: [],
-          documents: ['passport', 'visa'],
-          automatic: true,
-        }),
-      ]);
-      const text = within(region).getAllByRole('listitem')[0]?.textContent ?? '';
-      expect(text).toContain(
-        "The customer's passport and visa or approval letter were added to the order automatically (request #72)",
-      );
-      expect(text).not.toContain('approved the');
-    });
   });
 });
 

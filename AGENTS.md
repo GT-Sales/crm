@@ -253,9 +253,7 @@ The full domain rules are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §6.
   from the site's counter.
 - A **change request** is a customer's ask, through order tracking, to change
   a SIM order; staff approve or reject it on the lead page. A **held
-  document** is a file sent with a pending request. A request that only
-  adds a document the order has none of yet is approved automatically and
-  the file is current at once (23 Nov 2026).
+  document** is a file sent with a pending request.
 - A **flow** is an automation: a trigger and steps, with versions and runs.
   Every flow is off until switched on.
 - A **task** is a lead's follow-up or a **plain task** with no lead.

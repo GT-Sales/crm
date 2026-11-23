@@ -63,10 +63,7 @@ repository.
     details, never in a log or an audit event, never for a sensitive field.
     Staff edits still name fields only.
 17. Customer tracking: email → one-time code → orders → change requests that
-    staff approve. A document sent for an order that has none of that type
-    is added at once, without a decision (23 Nov 2026: Get Canada Sim's
-    customers send their passport and visa after checkout, and they were
-    waiting unseen on the change request card).
+    staff approve.
 18. No admin feature deletes customer data: requests come through the
     website's contact page and a developer deletes in the database; staff
     can only archive.

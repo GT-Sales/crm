@@ -324,18 +324,6 @@ function describeEntry(
           text: changeRequestText(activity, leadType, catalog),
         };
       }
-      if (activity.event === 'change_approved' && activity.automatic) {
-        // No staff decision: the documents filled empty slots, so the CRM added them at once.
-        const documents = (activity.documents ?? []).map((document) =>
-          documentLabel(document).toLowerCase(),
-        );
-        const number = activity.requestNo ? ` (request #${activity.requestNo})` : '';
-        return {
-          icon: <CheckIcon />,
-          actor: null,
-          text: `The customer's ${documents.length > 0 ? listText(documents) : 'documents'} ${documents.length === 1 ? 'was' : 'were'} added to the order automatically${number}`,
-        };
-      }
       if (activity.event === 'change_approved' || activity.event === 'change_rejected') {
         const approved = activity.event === 'change_approved';
         const number = activity.requestNo ? ` #${activity.requestNo}` : '';

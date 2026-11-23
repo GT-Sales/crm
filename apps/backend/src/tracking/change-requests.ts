@@ -25,12 +25,7 @@ import { z } from 'zod';
 
 import { readAutomationLead } from '../automations/run.js';
 import { documentBucket } from '../documents/config.js';
-import {
-  enqueueDeletedFile,
-  lockDocumentSlot,
-  releaseHeldFiles,
-  tombstoneHeldFiles,
-} from '../documents/store.js';
+import { enqueueDeletedFile, releaseHeldFiles, tombstoneHeldFiles } from '../documents/store.js';
 import { composeCustomerEmail } from '../email/compose.js';
 import { queueComposedEmail } from '../email/queue.js';
 import { isPlanAvailable } from '../leads/order.js';
@@ -211,94 +206,6 @@ async function record(
       documents,
     },
   });
-}
-
-/**
- * A request that only adds documents the order does not have yet (no field
- * change, and no current file of any of its document types) needs no staff
- * decision: its files become the order's documents at once and the request
- * is recorded as approved automatically. Anything that changes a detail or
- * replaces an existing document still waits for staff. No decision email
- * goes: the customer has just uploaded and sees the result on the page.
- */
-async function approveIfOnlyFillingEmptySlots(
-  tx: TenantTransaction,
-  input: WebsiteScope & { requestId: string; leadId: string; now: Date },
-  request: ChangeRequestRow,
-): Promise<boolean> {
-  if (fieldKeys(request.requested).length > 0 || request.stagedFiles.length === 0) return false;
-  const types = [...new Set(request.stagedFiles.map((file) => file.documentType))];
-  for (const documentType of types) {
-    // Under the slot's lock, so a staff upload of the same type cannot land in between.
-    await lockDocumentSlot(tx, {
-      workspaceId: input.workspaceId,
-      recordType: 'lead',
-      recordId: input.leadId,
-      documentType,
-    });
-  }
-  const current = await tx
-    .select({ id: files.id })
-    .from(files)
-    .where(
-      and(
-        eq(files.workspaceId, input.workspaceId),
-        eq(files.recordType, 'lead'),
-        eq(files.recordId, input.leadId),
-        eq(files.status, 'available'),
-        eq(files.heldForChangeRequest, false),
-        sql`${files.supersededByFileId} is null`,
-        sql`${files.documentType} in (${sql.join(
-          types.map((type) => sql`${type}`),
-          sql`, `,
-        )})`,
-      ),
-    )
-    .limit(1);
-  if (current.length > 0) return false;
-
-  await releaseHeldFiles(tx, {
-    workspaceId: input.workspaceId,
-    actorId: input.actorId,
-    requestId: input.requestId,
-    fileIds: request.stagedFiles.map((file) => file.fileId),
-  });
-  await tx
-    .update(changeRequests)
-    .set({
-      status: 'approved',
-      resolvedBy: input.actorId,
-      resolvedAt: input.now,
-      updatedAt: input.now,
-    })
-    .where(
-      and(eq(changeRequests.workspaceId, input.workspaceId), eq(changeRequests.id, request.id)),
-    );
-  const keys = {
-    requestNo: request.requestNo,
-    changeRequestId: request.id,
-    fields: [],
-    documents: types,
-    automatic: true,
-  };
-  await tx.insert(leadActivities).values({
-    workspaceId: input.workspaceId,
-    leadId: input.leadId,
-    actorId: input.actorId,
-    kind: 'system',
-    data: { event: 'change_approved', ...keys },
-  });
-  await tx.insert(auditEvents).values({
-    workspaceId: input.workspaceId,
-    actorId: input.actorId,
-    actorLabel: 'website credential',
-    action: 'lead.change_request_approved',
-    entity: 'lead',
-    entityId: input.leadId,
-    requestId: input.requestId,
-    after: keys,
-  });
-  return true;
 }
 
 type ChangeDatabase = Pick<DatabaseClient, 'withTenantTx'>;
@@ -486,7 +393,6 @@ export class DatabaseChangeRequestStore implements ChangeRequestStore {
       await record(tx, input, request, [], [documentType.data]);
       const saved = await selectPending(tx, input.workspaceId, input.leadId, false);
       if (!saved) throw new Error('change request vanished inside its own transaction');
-      await approveIfOnlyFillingEmptySlots(tx, input, saved);
       return { status: 'saved', changeRequest: saved, removedObjectKeys };
     });
   }
