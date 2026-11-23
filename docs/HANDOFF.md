@@ -231,6 +231,10 @@ submission so a retry never makes a second order.
   analysis, and publishing or switching a flow on from chat. The real-model
   evaluation of automation authoring ([evals](evals/automation-authoring.md))
   is not recorded as run.
+- **Ask AI model comparison** ([evals/model-test](evals/model-test/README.md)):
+  built and tried locally only; waits for the owner to create the two test
+  users, run its seed, allow the Model test site and set up the `model-test`
+  GitHub Environment before a first real run.
 - **Not built**: Export on the board's own selection and exports over 5,000
   leads; attachments on a customer reply, an unread count and staff
   notification of a reply, branded reply domains; a `List-Unsubscribe`
