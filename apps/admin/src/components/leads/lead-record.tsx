@@ -295,6 +295,7 @@ export function LeadRecord({
   const waitingChange = pendingChangeRequest(activities);
   const shownRequest =
     record.data.changeRequest ?? (decided?.leadId === leadId ? decided.request : undefined);
+  const requestHasFiles = access.contacts && (shownRequest?.documents.length ?? 0) > 0;
   const canWrite = access.manage && lead.deletedAt === null;
   const stages = leadTypeEntry(lead.leadType)?.stages ?? [];
   const stageListed = stages.some((entry) => entry.key === lead.stage);
@@ -663,8 +664,11 @@ export function LeadRecord({
   // In the panel a card may sit on another tab: open it first, then scroll
   // once that tab has rendered. Focus moves to the card for keyboard users.
   function jumpTo(target: LeadAttentionTarget) {
-    if (inPanel)
-      setPanelTab(target === 'documents' ? 'files' : target === 'tasks' ? 'tasks' : 'home');
+    if (inPanel) {
+      const isFileSection =
+        target === 'documents' || (target === 'change-request' && requestHasFiles);
+      setPanelTab(isFileSection ? 'files' : target === 'tasks' ? 'tasks' : 'home');
+    }
     requestAnimationFrame(() => {
       const element = document.getElementById(anchorId(target));
       if (!element) return;
@@ -1259,7 +1263,9 @@ export function LeadRecord({
           forceMount
           className="flex flex-col gap-3 p-4"
         >
-          {access.contacts ? anchored('change-request', changeRequestSection) : null}
+          {access.contacts && !requestHasFiles
+            ? anchored('change-request', changeRequestSection)
+            : null}
           <div className={DETAILS_SIDEBAR}>
             {contactSection}
             {anchored('order', propertiesSection)}
@@ -1293,19 +1299,41 @@ export function LeadRecord({
             </TabsContent>
           </>
         ) : null}
-        <TabsContent value="files" hidden={activeTab !== 'files'} forceMount className="p-4">
-          {documents.length > 0 ? (
-            anchored('documents', documentsSection)
-          ) : (
-            <Card>
-              <CardContent className="flex flex-col items-center gap-2 py-8 text-center">
-                <FilesIcon className="size-6 text-muted-foreground" aria-hidden="true" />
-                <h2 className="text-sm font-medium">No files yet</h2>
-                <p className="text-sm text-muted-foreground">
-                  Documents uploaded for this lead will appear here.
-                </p>
-              </CardContent>
-            </Card>
+        <TabsContent
+          value="files"
+          hidden={activeTab !== 'files'}
+          forceMount
+          className="flex flex-col gap-3 p-4"
+        >
+          {access.contacts ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="self-end"
+              disabled={record.loading}
+              onClick={() => void refresh()}
+            >
+              Refresh files
+            </Button>
+          ) : null}
+          {anchored(
+            'documents',
+            <div className="flex flex-col gap-3">
+              {requestHasFiles ? anchored('change-request', changeRequestSection) : null}
+              {documents.length > 0 ? documentsSection : null}
+              {!requestHasFiles && documents.length === 0 ? (
+                <Card>
+                  <CardContent className="flex flex-col items-center gap-2 py-8 text-center">
+                    <FilesIcon className="size-6 text-muted-foreground" aria-hidden="true" />
+                    <h2 className="text-sm font-medium">No files yet</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Documents uploaded for this lead will appear here.
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : null}
+            </div>,
           )}
         </TabsContent>
         {access.contacts ? (
@@ -1343,9 +1371,21 @@ export function LeadRecord({
         <div className={DETAILS_SIDEBAR}>
           {contactSection}
           {identitySection}
-          {anchored('documents', documentsSection)}
           {relatedSection}
           {anchored('order', propertiesSection)}
+          {requestHasFiles && record.data.changeRequest ? (
+            <div className="px-6 py-3">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => jumpTo('change-request')}
+              >
+                View pending uploads
+              </Button>
+            </div>
+          ) : null}
+          {documents.length > 0 ? anchored('documents', documentsSection) : null}
           {simEmailSection}
           {sourceSection}
         </div>

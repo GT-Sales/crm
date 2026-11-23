@@ -912,6 +912,23 @@ describe('LeadRecord order details', () => {
       }
     });
 
+    it('shows a file-only request in the Files tab after refreshing an open order', async () => {
+      mocks.getStaffLead.mockResolvedValueOnce(loaded({ changeRequest: null, activities: [] }));
+      mocks.getStaffLead.mockResolvedValue(loaded({ changeRequest: { ...pending, fields: {} } }));
+      mocks.createFileDownloadLink.mockResolvedValue({ url: 'https://example.test/passport' });
+      render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} variant="panel" />);
+      fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Files' }), { button: 0 });
+      const files = screen.getByRole('tabpanel', { name: 'Files' });
+      expect(within(files).getByRole('heading', { name: 'No files yet' })).toBeTruthy();
+
+      fireEvent.click(within(files).getByRole('button', { name: 'Refresh files' }));
+
+      const request = await within(files).findByRole('region', { name: 'Change request #70' });
+      expect(within(request).getByRole('button', { name: 'View Passport' })).toBeTruthy();
+      expect(within(request).getByRole('button', { name: 'Approve changes' })).toBeTruthy();
+      expect(within(files).queryByRole('heading', { name: 'No files yet' })).toBeNull();
+    });
+
     it('has no card when the lead has no pending request', async () => {
       mocks.getStaffLead.mockResolvedValue(loaded({ changeRequest: null, activities: [] }));
       render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
