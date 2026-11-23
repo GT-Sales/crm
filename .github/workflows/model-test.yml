@@ -1,0 +1,106 @@
+# The Ask AI model comparison (docs/evals/model-test/README.md): asks the
+# prompt set on the dedicated "Model test" site through the deployed backend,
+# scores the answers (automatic checks and two blind judges) and uploads the
+# results JSON and the HTML report as artifacts. Manual only: every run spends
+# Gateway credit and up to ~470 of the test site's 500 daily Ask AI requests.
+#
+# GitHub Environment `model-test`:
+#   secrets MODEL_TEST_OWNER_PASSWORD, MODEL_TEST_LEADS_PASSWORD,
+#           AI_GATEWAY_API_KEY (judges only; a key with its own budget)
+#   vars    MODEL_TEST_BACKEND_URL, MODEL_TEST_SUPABASE_URL,
+#           MODEL_TEST_SUPABASE_KEY (the publishable key), MODEL_TEST_WORKSPACE_ID,
+#           MODEL_TEST_OWNER_EMAIL, MODEL_TEST_LEADS_EMAIL, optional MODEL_TEST_MODELS
+# Re-run the seed (apps/backend/scripts/model-test/seed.sql) on the day of the
+# run first: the runner refuses a seed from another day.
+name: Model test
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: 'Comma-separated Gateway model ids (empty: the variable, else all eight)'
+        required: false
+        default: ''
+      cases:
+        description: 'Comma-separated prompt ids to run (empty: all)'
+        required: false
+        default: ''
+      phase:
+        description: 'normal, high or all'
+        required: false
+        default: 'all'
+      judge:
+        description: 'gateway, offline or none'
+        required: false
+        default: 'gateway'
+permissions:
+  contents: read
+jobs:
+  model-test:
+    environment: model-test
+    concurrency:
+      group: model-test
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    # 470 requests seven seconds apart plus the answers: about two hours.
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Ask the prompts
+        id: run
+        working-directory: apps/backend
+        env:
+          MODEL_TEST_BACKEND_URL: ${{ vars.MODEL_TEST_BACKEND_URL }}
+          MODEL_TEST_SUPABASE_URL: ${{ vars.MODEL_TEST_SUPABASE_URL }}
+          MODEL_TEST_SUPABASE_KEY: ${{ vars.MODEL_TEST_SUPABASE_KEY }}
+          MODEL_TEST_WORKSPACE_ID: ${{ vars.MODEL_TEST_WORKSPACE_ID }}
+          MODEL_TEST_OWNER_EMAIL: ${{ vars.MODEL_TEST_OWNER_EMAIL }}
+          MODEL_TEST_OWNER_PASSWORD: ${{ secrets.MODEL_TEST_OWNER_PASSWORD }}
+          MODEL_TEST_LEADS_EMAIL: ${{ vars.MODEL_TEST_LEADS_EMAIL }}
+          MODEL_TEST_LEADS_PASSWORD: ${{ secrets.MODEL_TEST_LEADS_PASSWORD }}
+          MODEL_TEST_ACK: dedicated-test-site
+          MODEL_TEST_MODELS: ${{ inputs.models || vars.MODEL_TEST_MODELS }}
+          MODEL_TEST_CASE: ${{ inputs.cases }}
+          MODEL_TEST_PHASE: ${{ inputs.phase }}
+          MODEL_TEST_OUTPUT: ${{ github.workspace }}/model-test/results.json
+        # Exit 3 is a daily limit reached: the partial results are still
+        # scored and uploaded; resume by running again with that file.
+        run: |
+          set +e
+          pnpm exec tsx scripts/model-test/run.ts
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" != 0 ] && [ "$code" != 3 ]; then exit "$code"; fi
+      - name: Score
+        if: always() && hashFiles('model-test/results.json') != ''
+        working-directory: apps/backend
+        env:
+          AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+          # Through the environment, never spliced into the script.
+          JUDGE_MODE: ${{ inputs.judge }}
+        run: >-
+          pnpm exec tsx scripts/model-test/score.ts
+          --results "$GITHUB_WORKSPACE/model-test/results.json"
+          --judge "$JUDGE_MODE"
+      - name: Report
+        if: always() && hashFiles('model-test/results.json') != ''
+        working-directory: apps/backend
+        run: >-
+          pnpm exec tsx scripts/model-test/report.ts
+          --results "$GITHUB_WORKSPACE/model-test/results.json"
+          --out "$GITHUB_WORKSPACE/model-test/report.html"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && hashFiles('model-test/results.json') != ''
+        with:
+          name: model-test-${{ github.run_id }}
+          path: model-test/
+          retention-days: 30
