@@ -27,6 +27,7 @@ import {
   useStopGuard,
 } from './assistant-shared';
 import { ComposerNotes, keptDraft } from './composer-notes';
+import { askAiIntro } from './ask-ai-intro';
 
 export function AssistantPanel() {
   const {
@@ -249,21 +250,15 @@ export function AssistantPanel() {
           </span>
           <p className="text-sm text-muted-foreground">
             {available
-              ? 'Ask about this site’s leads, orders, follow-ups or sources.'
+              ? askAiIntro('this site’s', {
+                  actions:
+                    capabilities.status === 'ready' && Boolean(capabilities.data.actions?.length),
+                  automations:
+                    capabilities.status === 'ready' &&
+                    capabilities.data.automationAuthoring === true,
+                })
               : 'Ask AI isn’t available for this site right now.'}
           </p>
-          {available && capabilities.status === 'ready' && capabilities.data.actions?.length ? (
-            <p className="text-sm text-muted-foreground">
-              You can also ask to prepare a task or note. Review the details and confirm before
-              saving.
-            </p>
-          ) : null}
-          {available && capabilities.status === 'ready' && capabilities.data.automationAuthoring ? (
-            <p className="text-sm text-muted-foreground">
-              Ask to create or edit an automation. Review the visual proposal and save a draft
-              before publishing in the builder.
-            </p>
-          ) : null}
           {available && suggestions.length > 0 ? (
             <div>
               <p className="text-xs font-medium text-muted-foreground">Suggested questions</p>
@@ -377,11 +372,11 @@ export function AssistantPanel() {
           )}
         </div>
       </div>
-      <p className="-mt-3 mx-4 rounded-b-xl bg-muted/50 px-3 pt-4 pb-1.5 text-xs text-muted-foreground">
-        {effort.offered && effort.value === 'high'
-          ? `High effort. ${HIGH_EFFORT_HINT}`
-          : 'Enter to send · Shift+Enter for a new line'}
-      </p>
+      {effort.offered && effort.value === 'high' ? (
+        <p className="-mt-3 mx-4 rounded-b-xl bg-muted/50 px-3 pt-4 pb-1.5 text-xs text-muted-foreground">
+          {`High effort. ${HIGH_EFFORT_HINT}`}
+        </p>
+      ) : null}
     </div>
   );
 

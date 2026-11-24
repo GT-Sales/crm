@@ -23,6 +23,7 @@
     "clsx": "catalog:",
     "lucide-react": "catalog:",
     "radix-ui": "catalog:",
+    "sonner": "catalog:",
     "tailwind-merge": "catalog:"
   },
   "devDependencies": {

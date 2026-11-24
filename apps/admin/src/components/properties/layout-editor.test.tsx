@@ -175,7 +175,8 @@ describe('LayoutEditor', () => {
       'Someone else changed this layout.',
     );
     save();
-    expect((await screen.findByRole('status')).textContent).toContain('Layout saved.');
+    // Saved: a toast says so.
+    expect(await screen.findByText('Layout saved.')).toBeTruthy();
   });
 
   it('refuses a section without a name', () => {

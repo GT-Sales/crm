@@ -37,6 +37,7 @@ import {
 
 import { getStaffLeads, updateStaffLead } from '../../lib/api';
 import { notifyLeadWorkSaved } from '../../lib/lead-work-events';
+import { toast } from '../../lib/toast';
 import { errorReason, useResource } from '../../lib/use-resource';
 import { stageMoveRefusal } from './stage-move-dialog';
 import {
@@ -395,16 +396,12 @@ export function LeadsTable({
   // Stage and assignee change in place for whoever manages leads (not in the archive).
   const canQuickEdit = leads.data?.access.manage === true && !query.archived;
   const [quickBusy, setQuickBusy] = useState<string>();
-  const [quickMessage, setQuickMessage] = useState<string>();
-  const [quickNote, setQuickNote] = useState<string>();
   const self = members.find((member) => member.isSelf);
   async function quickUpdate(
     lead: LeadListItem,
     body: { stage: string } | { assignedActorId: string | null },
   ) {
     setQuickBusy(lead.id);
-    setQuickMessage(undefined);
-    setQuickNote(undefined);
     try {
       await updateStaffLead(accessToken, workspaceId, lead.id, body);
       notifyLeadWorkSaved(workspaceId, lead.id);
@@ -414,19 +411,19 @@ export function LeadsTable({
         'stage' in body
           ? stageMoveRefusal(errorReason(error), lead.leadType, lead.stage)
           : undefined;
-      setQuickMessage(refusal ?? describeError(error, 'save the change'));
+      toast(refusal ?? describeError(error, 'save the change'), { tone: 'error' });
     } finally {
       setQuickBusy(undefined);
     }
   }
   async function copyEmail(email: string) {
-    setQuickMessage(undefined);
-    setQuickNote(undefined);
     try {
       await navigator.clipboard.writeText(email);
-      setQuickNote('Email copied.');
+      toast('Email copied.');
     } catch {
-      setQuickMessage('The browser did not allow copying. Open the lead and copy it from there.');
+      toast('The browser did not allow copying. Open the lead and copy it from there.', {
+        tone: 'error',
+      });
     }
   }
   function quickStage(lead: LeadListItem, to: string) {
@@ -515,16 +512,6 @@ export function LeadsTable({
           </button>
           {selectionActions ? <span className="ml-auto flex gap-2">{selectionActions}</span> : null}
         </div>
-      ) : null}
-      {quickMessage ? (
-        <p role="alert" className="text-sm text-destructive">
-          {quickMessage}
-        </p>
-      ) : null}
-      {quickNote ? (
-        <p role="status" className="text-sm text-muted-foreground">
-          {quickNote}
-        </p>
       ) : null}
       <div className="overflow-x-auto rounded-lg border">
         <table

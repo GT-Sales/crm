@@ -111,3 +111,4 @@ export { Textarea } from './components/textarea';
 export { Tabs, TabsList, TabsTrigger, TabsContent } from './components/tabs';
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from './components/tooltip';
 export { useIsMobile } from './hooks/use-mobile';
+export { Toaster, toast } from './components/sonner';

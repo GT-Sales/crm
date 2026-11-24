@@ -58,6 +58,7 @@ import {
 import { TemplateList } from './template-list';
 import { isForbidden, useEmailSettings } from './use-email-settings';
 import { LoadingSkeleton } from '../crm/loading-skeleton';
+import { toast } from '../../lib/toast';
 
 const COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
@@ -304,7 +305,8 @@ export function EmailSettings({
     setBusy(true);
     const reason = await onSave(parsed.data);
     setBusy(false);
-    setResult(reason ? { ok: false, text: reason } : { ok: true, text: 'Saved.' });
+    if (reason) setResult({ ok: false, text: reason });
+    else toast('Email settings saved.');
   }
 
   const pickerValue = COLOR_PATTERN.test(values.brandColor)

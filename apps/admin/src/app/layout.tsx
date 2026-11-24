@@ -5,6 +5,7 @@ import { SkipLink } from '@gt-sales/ui';
 
 import { StaffSessionProvider } from '../components/staff-session-provider';
 import { TopLoadingBar } from '../components/top-loading-bar';
+import { Toaster } from '../lib/toast';
 import './globals.css';
 
 // Feeds the shared `--font-sans-inter` token (see @gt-sales/ui tokens.css)
@@ -41,6 +42,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         </Suspense>
         <SkipLink />
         <StaffSessionProvider>{children}</StaffSessionProvider>
+        <Toaster />
       </body>
     </html>
   );

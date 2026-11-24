@@ -82,6 +82,7 @@ import { LeadsTable, NO_LEAD_SELECTION, type LeadSelection } from './leads-table
 import { SavedViewSwitcher } from './saved-view-switcher';
 import { useLeadWorkspace } from './use-lead-workspace';
 import { LEAD_WORK_SAVED } from '../../lib/lead-work-events';
+import { toast, toastPromise } from '../../lib/toast';
 import {
   BOARD_CARD_FIELDS,
   TABLE_COLUMNS,
@@ -1245,7 +1246,6 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
   const canSelect = canExport || canManage;
   const [selection, setSelection] = useState<LeadSelection>(NO_LEAD_SELECTION);
   const [exportOpen, setExportOpen] = useState(false);
-  const [exported, setExported] = useState<string>();
   const [tableTotal, setTableTotal] = useState<number>();
   const [pageRowIds, setPageRowIds] = useState<readonly string[]>([]);
   const [archiveOpen, setArchiveOpen] = useState(false);
@@ -1266,7 +1266,6 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
   useEffect(() => {
     setSelection(NO_LEAD_SELECTION);
     setTableTotal(undefined);
-    setExported(undefined);
   }, [filterKey]);
   const exportFilter = useMemo<LeadExportFilter>(
     () => ({
@@ -1342,29 +1341,42 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
   async function archiveSelected() {
     if (!accessToken || !workspaceId || selection.allMatching) return;
     const ids = [...selection.selected].slice(0, BULK_ARCHIVE_MAX);
-    setArchiving(true);
-    let failed = 0;
-    // A few at a time: each one also stops the lead's automations on the server.
-    for (let start = 0; start < ids.length; start += 4) {
-      const results = await Promise.allSettled(
-        ids
-          .slice(start, start + 4)
-          .map((id) => setLeadArchived(accessToken, workspaceId, id, !restoring)),
-      );
-      failed += results.filter((result) => result.status === 'rejected').length;
-    }
-    setArchiving(false);
-    setArchiveOpen(false);
-    setSelection(NO_LEAD_SELECTION);
-    setListVersion((version) => version + 1);
-    void summary.reload();
-    const done = ids.length - failed;
+    const count = (n: number) => `${countFormat.format(n)} ${n === 1 ? 'lead' : 'leads'}`;
     const verb = restoring ? 'Restored' : 'Archived';
-    setExported(
-      failed === 0
-        ? `${verb} ${countFormat.format(done)} ${done === 1 ? 'lead' : 'leads'}.`
-        : `${verb} ${countFormat.format(done)} of ${countFormat.format(ids.length)}. ${countFormat.format(failed)} couldn’t be changed; try those again.`,
-    );
+    setArchiving(true);
+    setArchiveOpen(false);
+    // A few at a time: each one also stops the lead's automations on the server.
+    const work = (async () => {
+      let failed = 0;
+      for (let start = 0; start < ids.length; start += 4) {
+        const results = await Promise.allSettled(
+          ids
+            .slice(start, start + 4)
+            .map((id) => setLeadArchived(accessToken, workspaceId, id, !restoring)),
+        );
+        failed += results.filter((result) => result.status === 'rejected').length;
+      }
+      if (failed > 0) {
+        throw new Error(
+          `${verb} ${countFormat.format(ids.length - failed)} of ${countFormat.format(ids.length)}. ${countFormat.format(failed)} couldn’t be changed; try those again.`,
+        );
+      }
+      return ids.length;
+    })();
+    try {
+      await toastPromise(work, {
+        loading: `${restoring ? 'Restoring' : 'Archiving'} ${count(ids.length)}…`,
+        success: (done) => `${verb} ${count(done)}.`,
+        error: (error) => (error instanceof Error ? error.message : `${verb} some leads.`),
+      });
+    } catch {
+      // The toast says what was left; the list reloads either way.
+    } finally {
+      setArchiving(false);
+      setSelection(NO_LEAD_SELECTION);
+      setListVersion((version) => version + 1);
+      void summary.reload();
+    }
   }
   // With nothing ticked: the round export icon. Ticking a row grows it in place into
   // the selection's actions, so the table below never moves.
@@ -1594,11 +1606,6 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
           Showing the built-in properties for now.
         </p>
       ) : null}
-      {exported ? (
-        <p role="status" className="text-sm text-muted-foreground">
-          {exported}
-        </p>
-      ) : null}
 
       <div className="flex min-w-0 items-start">
         <div data-slot="lead-list" className="min-w-0 flex-1">
@@ -1748,7 +1755,7 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
           matchingTotal={matchingTotal}
           tableFields={exportTableFields}
           onExported={({ rowCount, fileName }) =>
-            setExported(
+            toast(
               rowCount === undefined
                 ? `Exported to ${fileName}.`
                 : `Exported ${rowCount} lead${rowCount === 1 ? '' : 's'} to ${fileName}.`,

@@ -348,7 +348,7 @@ describe('LeadsTable', () => {
       menu = await openMenu();
       fireEvent.click(within(menu).getByRole('menuitem', { name: 'Copy email' }));
       await waitFor(() => expect(writeText).toHaveBeenCalledWith('avery@example.com'));
-      expect((await screen.findByRole('status')).textContent).toBe('Email copied.');
+      expect(await screen.findByText('Email copied.')).toBeTruthy();
       expect(onOpen).not.toHaveBeenCalled();
     });
 
@@ -589,7 +589,7 @@ describe('LeadsTable', () => {
         { button: 0, ctrlKey: false },
       );
       fireEvent.click(await screen.findByRole('menuitem', { name: 'Contacted' }));
-      expect((await screen.findByRole('alert')).textContent).toContain('not allowed from New');
+      expect(await screen.findByText(/not allowed from New/)).toBeTruthy();
     });
 
     it('offers no quick edit without lead management', async () => {

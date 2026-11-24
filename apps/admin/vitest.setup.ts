@@ -1,5 +1,9 @@
-import { cleanup } from '@testing-library/react';
+import { createElement } from 'react';
+import { act, cleanup } from '@testing-library/react';
+import { createRoot } from 'react-dom/client';
 import { afterEach, vi } from 'vitest';
+
+import { clearToasts, Toaster } from './src/lib/toast';
 
 // jsdom has no ResizeObserver; Radix controls (checkbox, dialog) measure with it.
 class ResizeObserverStub {
@@ -19,6 +23,24 @@ if (typeof SVGElement !== 'undefined' && !('getBBox' in SVGElement.prototype)) {
   });
 }
 
+// The root layout's toast corner, so a test finds a toast as a page would show it.
+// A fresh one per test: a toast still closing from the last test never leaks in.
+const toasterHost = document.createElement('div');
+let toasterRoot = createRoot(toasterHost);
+function mountToaster() {
+  if (!toasterHost.isConnected) document.body.appendChild(toasterHost);
+  act(() => {
+    toasterRoot.render(createElement(Toaster));
+  });
+}
+mountToaster();
+
 afterEach(() => {
   cleanup();
+  act(() => {
+    clearToasts();
+    toasterRoot.unmount();
+  });
+  toasterRoot = createRoot(toasterHost);
+  mountToaster();
 });

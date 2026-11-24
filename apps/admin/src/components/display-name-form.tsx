@@ -9,6 +9,7 @@ import { ROLE_LABELS, STAFF_DISPLAY_NAME_CHANGED } from '../lib/people';
 import { describeError } from '../lib/error-text';
 import { useLeadWorkspace } from './leads/use-lead-workspace';
 import { useStaffSession } from './staff-session-provider';
+import { toastPromise } from '../lib/toast';
 
 function profileInitials(name: string, email: string | undefined): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -35,7 +36,6 @@ export function DisplayNameForm({ workspaceSlug }: { workspaceSlug: string }) {
   const current = members.find((member) => member.isSelf)?.displayName ?? '';
   const [name, setName] = useState(current);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<string>();
 
   useEffect(() => {
     setName(current);
@@ -46,18 +46,19 @@ export function DisplayNameForm({ workspaceSlug }: { workspaceSlug: string }) {
     const trimmed = name.trim();
     if (!accessToken || !trimmed) return;
     setSaving(true);
-    setMessage(undefined);
     try {
-      const result = await updateStaffProfile(accessToken, trimmed);
-      setMessage(
-        `Saved. Colleagues now see “${result.displayName}” on ${result.memberships} site${
-          result.memberships === 1 ? '' : 's'
-        }.`,
-      );
+      await toastPromise(updateStaffProfile(accessToken, trimmed), {
+        loading: 'Saving your name…',
+        success: (result) =>
+          `Saved. Colleagues now see “${result.displayName}” on ${result.memberships} site${
+            result.memberships === 1 ? '' : 's'
+          }.`,
+        error: (error) => describeError(error, 'save your name'),
+      });
       window.dispatchEvent(new Event(STAFF_DISPLAY_NAME_CHANGED));
       await reloadMembers();
-    } catch (error) {
-      setMessage(describeError(error, 'save your name'));
+    } catch {
+      // The toast says why it was not saved.
     } finally {
       setSaving(false);
     }
@@ -160,14 +161,6 @@ export function DisplayNameForm({ workspaceSlug }: { workspaceSlug: string }) {
               </p>
             </div>
           </div>
-
-          {message ? (
-            <div className="border-t border-border/70 bg-muted/10 px-5 py-3">
-              <p role="status" className="text-xs text-muted-foreground">
-                {message}
-              </p>
-            </div>
-          ) : null}
         </form>
       </section>
 
