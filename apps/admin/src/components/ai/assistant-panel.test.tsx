@@ -840,6 +840,31 @@ describe('Ask AI panel', () => {
     expect(log.querySelectorAll('a[href^="http"]').length).toBe(0);
   });
 
+  it('shows the blocks a turn sends under the answer, in the panel', async () => {
+    mocks.askAiAssistant.mockImplementation(() =>
+      streamOf([
+        { type: 'text', text: 'Leads grew this month.' },
+        {
+          type: 'blocks',
+          blocks: [
+            {
+              kind: 'stats',
+              title: 'Last 30 days',
+              tiles: [{ label: 'New leads', value: 40, previous: 32 }],
+            },
+          ],
+        },
+        { type: 'done' },
+      ]),
+    );
+    render(<Harness />);
+    await openPanel();
+    ask('How did the month go?');
+    const block = await screen.findByRole('region', { name: 'Last 30 days' });
+    expect(block.textContent).toContain('New leads');
+    expect(block.textContent).toContain('+8 vs before');
+  });
+
   it('stops a streaming answer by aborting its signal', async () => {
     mocks.askAiAssistant.mockImplementation((_token, _workspaceId, _body, options) => {
       async function* slow(): AsyncGenerator<AiStreamPart, void, undefined> {

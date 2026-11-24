@@ -103,6 +103,7 @@ import { buildSystemPrompt, openLeadDataBlock, AI_PROMPT_VERSION } from '../ai/p
 import { serializedBytes } from '../ai/projections.js';
 import type { AiReadService } from '../ai/read-service.js';
 import type { AiSiteContextStore } from '../ai/site-context.js';
+import { BlockRegistry, createShowBlockTool } from '../ai/blocks.js';
 import { SourceRegistry } from '../ai/sources.js';
 import {
   WIDE_READ_TOOL_NAMES,
@@ -496,6 +497,7 @@ const CARD_PROGRESS_LABELS: Readonly<Record<string, string>> = {
   proposeAutomationCreate: 'Drafting an automation for review',
   proposeAutomationEdit: 'Drafting automation changes for review',
   askFollowUp: 'Preparing a question',
+  showBlock: 'Preparing a table',
   getCrmGuide: 'Looking up the CRM guide',
 };
 
@@ -1592,6 +1594,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       const plainTasks = await wait(plainTasksReady(scope));
       // B1: every lead the model reads in this turn, for the email and note cards' check.
       const seenLeads = new SeenLeads();
+      // Blocks under the answer, filled from this turn's own reads (docs/design/ai-blocks.md).
+      const blocks = new BlockRegistry(site.slug);
       const sources = new SourceRegistry({
         workspaceSlug: site.slug,
         asOf: turnStarted,
@@ -2195,6 +2199,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                 ...automationTools?.definitions,
                 askFollowUp: guidedTool,
                 getCrmGuide: createCrmGuideTool(budget),
+                showBlock: createShowBlockTool(blocks),
               },
               signal: controller.signal,
               // Only a High turn names its level, so a Normal turn's input is as it was.
@@ -2206,6 +2211,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                   ? executeRead(name, input).then((result) => {
                       // B1: what the model was told about leads, kept for the card check.
                       seenLeads.record(result);
+                      blocks.record(name, result);
                       return result;
                     })
                   : actionTools &&
@@ -2218,7 +2224,9 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                         ? guide(input)
                         : name === 'getCrmGuide'
                           ? Promise.resolve(runCrmGuide(budget, input))
-                          : Promise.reject(new Error('unknown assistant tool')),
+                          : name === 'showBlock'
+                            ? Promise.resolve(blocks.show(input))
+                            : Promise.reject(new Error('unknown assistant tool')),
             })) {
               if (controller.signal.aborted) break;
               switch (event.type) {
@@ -2293,6 +2301,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               });
               return;
             }
+            const shownBlocks = blocks.list();
+            if (shownBlocks.length > 0) writePart({ type: 'blocks', blocks: [...shownBlocks] });
             const cards = sources.list();
             if (cards.length > 0) writePart({ type: 'sources', sources: cards });
             if (actionTools) writeCards(actionTools.proposals, finalAccess);

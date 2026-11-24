@@ -979,6 +979,70 @@ export const aiStreamErrorCodeSchema = z.enum([
 
 export type AiStreamErrorCode = z.infer<typeof aiStreamErrorCodeSchema>;
 
+/** At most this many blocks under one answer (docs/design/ai-blocks.md). */
+export const AI_BLOCKS_PER_ANSWER = 2;
+const blockText = (max: number) => z.string().min(1).max(max);
+
+/**
+ * A block under an answer: a short list of leads, a few figures, or a ranked
+ * list. The model only chooses one; the server fills it from a read it made
+ * in the same turn, so every name, number and link comes from the CRM.
+ */
+export const aiBlockSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('leads'),
+      title: blockText(120),
+      rows: z
+        .array(
+          z
+            .object({
+              label: blockText(120),
+              stage: blockText(80).nullable(),
+              fact: blockText(160).nullable(),
+              /** A site-relative path the server built; never one the model wrote. */
+              href: z.string().startsWith('/').max(300).nullable(),
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(8),
+      /** How many more the read found than the block shows. */
+      more: z.int().nonnegative(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('stats'),
+      title: blockText(120),
+      tiles: z
+        .array(
+          z
+            .object({
+              label: blockText(60),
+              value: z.int(),
+              /** The same figure in the period before; null when not compared. */
+              previous: z.int().nullable(),
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(6),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('ranking'),
+      title: blockText(120),
+      rows: z
+        .array(z.object({ label: blockText(120), value: z.int().nonnegative() }).strict())
+        .min(1)
+        .max(8),
+    })
+    .strict(),
+]);
+export type AiBlock = z.infer<typeof aiBlockSchema>;
+
 /**
  * The typed parts of the server-sent event stream, one JSON object per frame.
  * Unknown parts are ignored by the client; raw tool arguments, tool results,
@@ -994,6 +1058,13 @@ export const aiStreamPartSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('progress'), label: z.string().min(1).max(80) }).strict(),
   z.object({ type: z.literal('text'), text: z.string().min(1).max(8_000) }).strict(),
   z.object({ type: z.literal('sources'), sources: z.array(aiSourceSchema).max(20) }).strict(),
+  /** Blocks the model asked for, filled by the server; never stored with the answer. */
+  z
+    .object({
+      type: z.literal('blocks'),
+      blocks: z.array(aiBlockSchema).min(1).max(AI_BLOCKS_PER_ANSWER),
+    })
+    .strict(),
   z
     .object({ type: z.literal('actions'), actions: z.array(aiActionProposalSchema).max(3) })
     .strict(),
