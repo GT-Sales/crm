@@ -130,7 +130,8 @@ describe('EmailSettings form', () => {
         accentColor: null,
       }),
     );
-    expect((await screen.findByRole('status')).textContent).toContain('Saved.');
+    const notifications = screen.getByRole('region', { name: 'Notifications' });
+    expect(await within(notifications).findByText('Email settings saved.')).toBeTruthy();
   });
 
   it('saves the Website hero style with its accent colour in lower case', async () => {

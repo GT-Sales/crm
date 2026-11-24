@@ -22,6 +22,7 @@ import { describeError } from '../lib/error-text';
 import { useResource } from '../lib/use-resource';
 import { useStaffSession } from './staff-session-provider';
 import { LoadingSkeleton } from './crm/loading-skeleton';
+import { toast } from '../lib/toast';
 
 function memberInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -51,24 +52,23 @@ export function TeamList({ workspaceSlug }: { workspaceSlug: string }) {
   const team = useResource(load);
   const [removeTarget, setRemoveTarget] = useState<AssignableMember>();
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string>();
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | StaffRoleName>('all');
 
   async function remove(member: AssignableMember) {
     if (!accessToken || !workspaceId) return;
     setBusy(true);
-    setMessage(undefined);
     try {
       await revokeStaff(accessToken, workspaceId, member.membershipId);
       team.mutate((current) => ({
         ...current,
         members: current.members.filter((entry) => entry.membershipId !== member.membershipId),
       }));
-      setMessage(`${memberName(member)} no longer has access to this site.`);
+      toast(`${memberName(member)} no longer has access to this site.`);
     } catch (error) {
-      setMessage(
+      toast(
         `${memberName(member)} still has access. ${describeError(error, 'remove them from the site')}`,
+        { tone: 'error' },
       );
     } finally {
       setBusy(false);
@@ -226,12 +226,6 @@ export function TeamList({ workspaceSlug }: { workspaceSlug: string }) {
           </ul>
         </div>
       )}
-
-      {message ? (
-        <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
-          {message}
-        </p>
-      ) : null}
 
       <Dialog
         open={removeTarget !== undefined}

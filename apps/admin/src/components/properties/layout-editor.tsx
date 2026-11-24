@@ -9,6 +9,7 @@ import {
 } from '@gt-sales/contracts';
 import { Button, Input, NativeSelect } from '@gt-sales/ui';
 import { describeInvalid } from '../../lib/error-text';
+import { toast } from '../../lib/toast';
 
 const KEY_TYPE = 'application/x-property-key';
 const SECTION_TYPE = 'application/x-layout-section';
@@ -123,7 +124,10 @@ export function LayoutEditor({
     try {
       const reason = await onSave(parsed.data);
       if (reason) setError(reason);
-      else setStatus('Layout saved.');
+      else {
+        setStatus('');
+        toast('Layout saved.');
+      }
     } finally {
       setBusy(false);
     }

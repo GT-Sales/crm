@@ -117,6 +117,10 @@ typecheck (it reads stale generated types).
   in either order, add a catalogue probe (`*-schema.ts`) rather than assume
   the column.
 - **A variable**: document it in docs/ENV.md.
+- **A confirmation after an action** in the admin ("Archived 3 leads.",
+  "Saved."): `toast()` from `apps/admin/src/lib/toast.tsx`, shown in the
+  bottom-right corner, never a line that pushes the page down. A field error
+  or something that must stay on screen (a secret shown once) stays inline.
 - **A database or operations procedure**: its runbook in `docs/RUNBOOKS/`.
 
 ## Where things live

@@ -9,6 +9,7 @@ import { inviteStaff } from '../lib/api';
 import { describeError } from '../lib/error-text';
 import { ROLE_LABELS } from '../lib/people';
 import { useStaffSession } from './staff-session-provider';
+import { toast } from '../lib/toast';
 
 interface InviteRow {
   id: number;
@@ -88,7 +89,7 @@ export function StaffInviteForm({ workspaceSlug }: { workspaceSlug: string }) {
       }
       setRows([{ id: nextId, email: '', roles: ['viewer'] }]);
       setNextId((value) => value + 1);
-      setMessage(
+      toast(
         activeRows.length === 1
           ? 'Invitation is pending. The recipient can now accept it from the sign-in page.'
           : `${activeRows.length} invitations are pending. The recipients can now accept them from the sign-in page.`,

@@ -9,6 +9,7 @@ import { ROLE_LABELS, STAFF_DISPLAY_NAME_CHANGED } from '../lib/people';
 import { describeError } from '../lib/error-text';
 import { useLeadWorkspace } from './leads/use-lead-workspace';
 import { useStaffSession } from './staff-session-provider';
+import { toast } from '../lib/toast';
 
 function profileInitials(name: string, email: string | undefined): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -49,7 +50,7 @@ export function DisplayNameForm({ workspaceSlug }: { workspaceSlug: string }) {
     setMessage(undefined);
     try {
       const result = await updateStaffProfile(accessToken, trimmed);
-      setMessage(
+      toast(
         `Saved. Colleagues now see “${result.displayName}” on ${result.memberships} site${
           result.memberships === 1 ? '' : 's'
         }.`,

@@ -15,6 +15,7 @@ import { describeError, errorKind } from '../../lib/error-text';
 import { useResource } from '../../lib/use-resource';
 import { LoadingSkeleton } from '../crm/loading-skeleton';
 import { useStaffSession } from '../staff-session-provider';
+import { toast } from '../../lib/toast';
 
 /**
  * Settings → AI models, the owner's choice of Ask AI's models: which Gateway
@@ -37,7 +38,6 @@ export function AiModelsScreen({ workspaceSlug }: { workspaceSlug: string }) {
   );
   const settings = useResource(load);
   const [editing, setEditing] = useState(false);
-  const [notice, setNotice] = useState<string>();
 
   if (settings.error) {
     return <LoadFailed failure={settings.failure} onRetry={() => void settings.reload()} />;
@@ -57,28 +57,16 @@ export function AiModelsScreen({ workspaceSlug }: { workspaceSlug: string }) {
             const saved = await updateAiModelSettings(accessToken, workspaceId, body);
             settings.mutate((current) => ({ ...current, saved: saved.saved }));
             setEditing(false);
-            setNotice('Saved. Members see the new models the next time they open Ask AI.');
+            toast('Saved. Members see the new models the next time they open Ask AI.');
           }}
         />
       ) : (
         <>
           <InUse data={data} />
           <div className="flex flex-wrap items-center gap-3">
-            <Button
-              type="button"
-              disabled={!canEdit}
-              onClick={() => {
-                setNotice(undefined);
-                setEditing(true);
-              }}
-            >
+            <Button type="button" disabled={!canEdit} onClick={() => setEditing(true)}>
               Edit models
             </Button>
-            {notice ? (
-              <p role="status" className="text-sm text-muted-foreground">
-                {notice}
-              </p>
-            ) : null}
           </div>
         </>
       )}
