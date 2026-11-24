@@ -286,9 +286,7 @@ describe('Ask AI full page: availability', () => {
     expect(
       await screen.findByRole('heading', { name: 'What would you like to know?' }),
     ).toBeTruthy();
-    expect(
-      screen.getByText('Ask about CanadaWide’s leads, orders, follow-ups or sources.'),
-    ).toBeTruthy();
+    expect(screen.getByText(/^Ask about CanadaWide’s leads, orders and follow-ups/)).toBeTruthy();
   });
 
   it('says plainly when the site has no Ask AI, never a broken composer', async () => {

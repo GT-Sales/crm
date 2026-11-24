@@ -22,7 +22,7 @@ import { describeError } from '../lib/error-text';
 import { useResource } from '../lib/use-resource';
 import { useStaffSession } from './staff-session-provider';
 import { LoadingSkeleton } from './crm/loading-skeleton';
-import { toast } from '../lib/toast';
+import { toastPromise } from '../lib/toast';
 
 function memberInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -59,17 +59,18 @@ export function TeamList({ workspaceSlug }: { workspaceSlug: string }) {
     if (!accessToken || !workspaceId) return;
     setBusy(true);
     try {
-      await revokeStaff(accessToken, workspaceId, member.membershipId);
+      await toastPromise(revokeStaff(accessToken, workspaceId, member.membershipId), {
+        loading: `Removing ${memberName(member)}…`,
+        success: `${memberName(member)} no longer has access to this site.`,
+        error: (error) =>
+          `${memberName(member)} still has access. ${describeError(error, 'remove them from the site')}`,
+      });
       team.mutate((current) => ({
         ...current,
         members: current.members.filter((entry) => entry.membershipId !== member.membershipId),
       }));
-      toast(`${memberName(member)} no longer has access to this site.`);
-    } catch (error) {
-      toast(
-        `${memberName(member)} still has access. ${describeError(error, 'remove them from the site')}`,
-        { tone: 'error' },
-      );
+    } catch {
+      // The toast says why they still have access.
     } finally {
       setBusy(false);
     }

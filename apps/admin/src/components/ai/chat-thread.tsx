@@ -8,6 +8,7 @@ import { Button, Skeleton } from '@gt-sales/ui';
 import { AssistantMessage } from './assistant-message';
 import { useAssistant } from './assistant-provider';
 import { suggestionsFor } from './assistant-shared';
+import { askAiIntro } from './ask-ai-intro';
 
 function ThreadSkeleton() {
   return (
@@ -40,6 +41,7 @@ function Centered({ children }: { children: ReactNode }) {
  * a stored conversation shows a skeleton while it loads, a plain sentence if
  * it is not available, and Try again if it failed to load.
  */
+
 export function ChatThread({
   scrollRef,
   onScroll,
@@ -114,21 +116,12 @@ export function ChatThread({
         <div className="flex flex-col gap-1.5">
           <h2 className="text-2xl font-semibold tracking-tight">What would you like to know?</h2>
           <p className="text-sm text-muted-foreground">
-            Ask about {siteName}’s leads, orders, follow-ups or sources.
+            {askAiIntro(`${siteName}’s`, {
+              actions: Boolean(data?.actions?.length),
+              automations: data?.automationAuthoring === true,
+            })}
           </p>
         </div>
-        {data?.actions?.length ? (
-          <p className="max-w-md text-xs text-muted-foreground">
-            You can also ask to prepare a task or note. Review the details and confirm before
-            saving.
-          </p>
-        ) : null}
-        {data?.automationAuthoring ? (
-          <p className="max-w-md text-xs text-muted-foreground">
-            Ask to create or edit an automation. Review the visual proposal and save a draft before
-            publishing in the builder.
-          </p>
-        ) : null}
         {suggestions.length > 0 ? (
           <div className="mt-4 w-full max-w-2xl text-left">
             <p className="mb-2 px-1 text-xs font-medium text-muted-foreground">

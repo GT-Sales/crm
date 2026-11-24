@@ -297,7 +297,7 @@ describe('effort levels: the control', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Ask AI' }));
     const panel = screen.getByRole('dialog', { name: 'Ask AI' });
     expect(effortGroup(panel)).toBeNull();
-    expect(within(panel).getByText('Enter to send · Shift+Enter for a new line')).toBeTruthy();
+    expect(within(panel).queryByText(/Enter to send/)).toBeNull();
   });
 
   it('offers Normal and High beside Send, Normal by default, as a keyboard radio group', async () => {

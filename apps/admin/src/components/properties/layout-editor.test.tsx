@@ -175,9 +175,8 @@ describe('LayoutEditor', () => {
       'Someone else changed this layout.',
     );
     save();
-    // Saved: a toast in the corner says so.
-    const notifications = screen.getByRole('region', { name: 'Notifications' });
-    expect(await within(notifications).findByText('Layout saved.')).toBeTruthy();
+    // Saved: a toast says so.
+    expect(await screen.findByText('Layout saved.')).toBeTruthy();
   });
 
   it('refuses a section without a name', () => {

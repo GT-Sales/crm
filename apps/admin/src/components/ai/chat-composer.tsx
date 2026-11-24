@@ -123,14 +123,14 @@ export const ChatComposer = forwardRef<
   }
 
   const highChosen = effort.offered && effort.value === 'high';
-  const keyHint = !uploading && !(readyFiles > 0 && text.length === 0) && !highChosen;
+  // Only a note that matters right now shows under the box; no keyboard tips.
   const hint = uploading
     ? 'Waiting for the files to finish uploading…'
     : readyFiles > 0 && text.length === 0
       ? 'Add a question to send with the files.'
       : highChosen
         ? `High effort. ${HIGH_EFFORT_HINT}`
-        : 'Enter to send · Shift+Enter for a new line';
+        : undefined;
 
   return (
     <div className="shrink-0 px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6">
@@ -184,7 +184,7 @@ export const ChatComposer = forwardRef<
             maxLength={maxMessageChars * 2}
             placeholder="Ask about leads, orders or follow-ups…"
             disabled={!ready}
-            aria-describedby={hintId}
+            aria-describedby={hint === undefined ? undefined : hintId}
             onChange={(event) => {
               const kept = keptDraft(event.target.value, maxMessageChars);
               setDraft(kept.text);
@@ -270,16 +270,14 @@ export const ChatComposer = forwardRef<
             )}
           </div>
         </div>
-        {/* The key hint sits in a strip under the box; a phone's keyboard has its own return key. */}
-        <p
-          id={hintId}
-          className={cn(
-            '-mt-3 mx-4 truncate rounded-b-xl bg-muted/50 px-3 pt-4 pb-1.5 text-xs text-muted-foreground',
-            keyHint && 'max-sm:sr-only',
-          )}
-        >
-          {hint}
-        </p>
+        {hint === undefined ? null : (
+          <p
+            id={hintId}
+            className="-mt-3 mx-4 truncate rounded-b-xl bg-muted/50 px-3 pt-4 pb-1.5 text-xs text-muted-foreground"
+          >
+            {hint}
+          </p>
+        )}
       </div>
     </div>
   );

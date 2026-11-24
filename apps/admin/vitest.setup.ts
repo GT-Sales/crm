@@ -24,15 +24,23 @@ if (typeof SVGElement !== 'undefined' && !('getBBox' in SVGElement.prototype)) {
 }
 
 // The root layout's toast corner, so a test finds a toast as a page would show it.
+// A fresh one per test: a toast still closing from the last test never leaks in.
 const toasterHost = document.createElement('div');
-document.body.appendChild(toasterHost);
-act(() => {
-  createRoot(toasterHost).render(createElement(Toaster));
-});
+let toasterRoot = createRoot(toasterHost);
+function mountToaster() {
+  if (!toasterHost.isConnected) document.body.appendChild(toasterHost);
+  act(() => {
+    toasterRoot.render(createElement(Toaster));
+  });
+}
+mountToaster();
 
 afterEach(() => {
   cleanup();
-  act(() => clearToasts());
-  // cleanup() empties the body; the toast corner stays for the next test.
-  if (!toasterHost.isConnected) document.body.appendChild(toasterHost);
+  act(() => {
+    clearToasts();
+    toasterRoot.unmount();
+  });
+  toasterRoot = createRoot(toasterHost);
+  mountToaster();
 });

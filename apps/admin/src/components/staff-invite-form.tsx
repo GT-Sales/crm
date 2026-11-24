@@ -9,7 +9,7 @@ import { inviteStaff } from '../lib/api';
 import { describeError } from '../lib/error-text';
 import { ROLE_LABELS } from '../lib/people';
 import { useStaffSession } from './staff-session-provider';
-import { toast } from '../lib/toast';
+import { toastPromise } from '../lib/toast';
 
 interface InviteRow {
   id: number;
@@ -22,7 +22,6 @@ export function StaffInviteForm({ workspaceSlug }: { workspaceSlug: string }) {
   const workspace = staff.workspaces.find((item) => item.slug === workspaceSlug);
   const [rows, setRows] = useState<readonly InviteRow[]>([{ id: 1, email: '', roles: ['viewer'] }]);
   const [nextId, setNextId] = useState(2);
-  const [message, setMessage] = useState<string>();
   const [busy, setBusy] = useState(false);
   // Below `md` the form starts folded behind a button; from `md` it is always open.
   const [expanded, setExpanded] = useState(false);
@@ -73,34 +72,46 @@ export function StaffInviteForm({ workspaceSlug }: { workspaceSlug: string }) {
     event.preventDefault();
     if (!staff.accessToken || !workspace || activeRows.length === 0 || busy) return;
     setBusy(true);
-    setMessage(undefined);
+    const token = staff.accessToken;
+    const site = workspace.id;
+    const total = activeRows.length;
     let sent = 0;
-    try {
-      for (const row of activeRows) {
-        await inviteStaff(staff.accessToken, workspace.id, {
-          email: row.email.trim(),
-          roles: [...row.roles],
-        });
-        sent += 1;
-        // A sent row leaves the form, so a retry after a later failure only
-        // sends the rows still waiting (a second send would be refused as a
-        // membership conflict and stop the whole retry).
-        setRows((current) => current.filter((item) => item.id !== row.id));
+    const work = (async () => {
+      try {
+        for (const row of activeRows) {
+          await inviteStaff(token, site, {
+            email: row.email.trim(),
+            roles: [...row.roles],
+          });
+          sent += 1;
+          // A sent row leaves the form, so a retry after a later failure only
+          // sends the rows still waiting (a second send would be refused as a
+          // membership conflict and stop the whole retry).
+          setRows((current) => current.filter((item) => item.id !== row.id));
+        }
+      } catch (error) {
+        const failure = describeError(error, 'send the invitation');
+        throw new Error(
+          sent === 0
+            ? failure
+            : `${sent} of ${total} invitations are pending and were removed from the list. ${failure}`,
+        );
       }
+    })();
+    try {
+      await toastPromise(work, {
+        loading: total === 1 ? 'Sending the invitation…' : `Sending ${total} invitations…`,
+        success:
+          total === 1
+            ? 'Invitation is pending. The recipient can now accept it from the sign-in page.'
+            : `${total} invitations are pending. The recipients can now accept them from the sign-in page.`,
+        error: (error) =>
+          error instanceof Error ? error.message : describeError(error, 'send the invitation'),
+      });
       setRows([{ id: nextId, email: '', roles: ['viewer'] }]);
       setNextId((value) => value + 1);
-      toast(
-        activeRows.length === 1
-          ? 'Invitation is pending. The recipient can now accept it from the sign-in page.'
-          : `${activeRows.length} invitations are pending. The recipients can now accept them from the sign-in page.`,
-      );
-    } catch (error) {
-      const failure = describeError(error, 'send the invitation');
-      setMessage(
-        sent === 0
-          ? failure
-          : `${sent} of ${activeRows.length} invitations are pending and were removed from the list. ${failure}`,
-      );
+    } catch {
+      // The toast says what was sent and why the rest was not; those rows stay.
     } finally {
       setBusy(false);
     }
@@ -269,11 +280,6 @@ export function StaffInviteForm({ workspaceSlug }: { workspaceSlug: string }) {
               <Plus className="size-3.5" aria-hidden="true" />
               Add more
             </Button>
-            {message ? (
-              <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
-                {message}
-              </p>
-            ) : null}
           </div>
         </div>
       </form>
