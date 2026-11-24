@@ -29,6 +29,7 @@ import {
   type AiCapabilitiesResponse,
   type AiEffort,
   type AiModelChoice,
+  type AiBlock,
   type AiSource,
   type AiStreamPart,
   type AiActionCard,
@@ -193,6 +194,8 @@ export interface AiAssistantMessage {
   text: string;
   status: 'streaming' | 'complete' | 'stopped' | 'error';
   sources: readonly AiSource[];
+  /** Blocks under the answer (docs/design/ai-blocks.md); never stored, so a reload has none. */
+  blocks?: readonly AiBlock[];
   /** The current tool's plain-language label, never announced as a live region. */
   progress?: string;
   /** The finished answer's history signature (CHAT-2), sent back with the next question. */
@@ -1065,6 +1068,7 @@ export function AssistantProvider({
           return { ...message, text: message.text + part.text, progress: undefined };
         }
         if (part.type === 'progress') return { ...message, progress: part.label };
+        if (part.type === 'blocks') return { ...message, blocks: part.blocks };
         if (part.type === 'sources') {
           // A turn may send its cards in more than one part; a repeated id wins.
           const byId = new Map<string, AiSource>();

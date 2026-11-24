@@ -591,13 +591,17 @@ and can only **prepare** signed cards that a person confirms. Design and
 limits: [design/ai-assistant.md](design/ai-assistant.md) (trust boundaries,
 reads, limits, models), [design/ai-actions.md](design/ai-actions.md) (cards
 and confirmation), [design/ai-chat.md](design/ai-chat.md) (saved
-conversations, attachments, usage). Operation:
+conversations, attachments, usage), [design/ai-blocks.md](design/ai-blocks.md)
+(blocks under an answer). Operation:
 [RUNBOOKS/ai-assistant.md](RUNBOOKS/ai-assistant.md).
 
 - A **conversation** is one member's saved chat on one site, private to that
   member (the owner included gets `404`). It is kept until the member deletes
   it, except that a customer's erasure empties the turns about that lead and
   a member gone from the site for 30 days loses their chats there.
+- A **block** is a short lead list, a few figures or a ranked list under an
+  answer: the model names one with `showBlock` and the server fills it from a
+  read of the same turn. Not stored with the answer.
 - An **attachment** is a file a member adds to a message (`image`, `pdf` or
   `text`, of the kinds `AI_ATTACHMENT_KINDS` enables); never a lead's
   document, never in `app.files`.

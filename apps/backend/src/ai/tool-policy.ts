@@ -40,6 +40,7 @@ const ALLOWED_TOOLS = new Set([
   'proposeAutomationEdit',
   'askFollowUp',
   'getCrmGuide',
+  'showBlock',
 ]);
 
 /** Refuse extra tools or provider-executed/dynamic tools before contacting the model. */

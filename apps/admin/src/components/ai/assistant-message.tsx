@@ -12,6 +12,7 @@ import {
   type AiAssistantMessage,
   type AiMessage,
 } from './assistant-provider';
+import { AnswerBlocks } from './answer-blocks';
 import { AssistantSources } from './assistant-sources';
 import { AssistantMarkdown } from './assistant-markdown';
 import { AssistantAction } from './assistant-action';
@@ -292,6 +293,7 @@ function AssistantAnswer({
           </p>
         ) : null}
         {message.expiredDrafts ? <ExpiredDrafts message={message} /> : null}
+        {message.blocks ? <AnswerBlocks blocks={message.blocks} /> : null}
         <AssistantSources sources={message.sources} />
         {message.status === 'complete'
           ? message.automationProposals?.map((proposal) => (

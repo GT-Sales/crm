@@ -1557,6 +1557,42 @@ describe('trusted history and recovered cards (CHAT-2, CHAT-4, CHAT-11)', () => 
     expect(parts.at(-1)?.type).toBe('done');
   });
 
+  it('sends a block the model asked for, built from its own read, before the sources', async () => {
+    await start(
+      appWith({
+        turns: [
+          {
+            toolCalls: [
+              { name: 'findLeads', input: {} },
+              { name: 'showBlock', input: { kind: 'leads', from: 'findLeads' } },
+              // Not built: nothing was read for it.
+              { name: 'showBlock', input: { kind: 'stats', from: 'getAnalytics' } },
+            ],
+            chunks: ['One lead waits.'],
+          },
+        ],
+      }),
+    );
+    const response = await fetch(chatUrl(), {
+      method: 'POST',
+      headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+      body: JSON.stringify(body()),
+    });
+    const parts = await readParts(response);
+    const blocks = parts.find((part) => part.type === 'blocks');
+    expect(blocks?.type === 'blocks' ? blocks.blocks : []).toEqual([
+      expect.objectContaining({
+        kind: 'leads',
+        rows: [expect.objectContaining({ href: expect.stringContaining(`/leads/${LEAD}`) })],
+        more: 0,
+      }),
+    ]);
+    const order = parts.map((part) => part.type);
+    expect(order.indexOf('blocks')).toBeLessThan(order.indexOf('done'));
+    if (order.includes('sources'))
+      expect(order.indexOf('blocks')).toBeLessThan(order.indexOf('sources'));
+  });
+
   it('splits a provider chunk longer than a text part', async () => {
     const long = 'a'.repeat(9_000);
     await start(appWith({ turns: [{ chunks: [long] }] }));

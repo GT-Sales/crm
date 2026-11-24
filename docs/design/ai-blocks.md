@@ -1,6 +1,7 @@
 # Ask AI answer blocks (plan)
 
-Status: planned, not built (24 Nov 2026). The idea comes from A2UI
+Status: built (24 Nov 2026): `apps/backend/src/ai/blocks.ts`, the `blocks`
+stream part, and `apps/admin/src/components/ai/answer-blocks.tsx`. The idea comes from A2UI
 (a2ui.org): the agent asks for UI from a locked catalogue and the app draws
 it with its own components. We take the idea, not the library.
 
@@ -15,7 +16,7 @@ changes: every change to data still goes through the signed confirm cards.
 
 **The model chooses a block; the server fills it.** A new tool,
 `showBlock({ kind, from })`, names one of the reads the model already made
-in this turn (`from` is that call's id). The server builds the block from
+in this turn (`from` is that read's name; the latest result of it in the turn is used). The server builds the block from
 that read's result, which it already holds in memory, with the same access
 projection the read used. The model never writes a number, a name or a link
 into a block, so a block cannot show a made-up figure or another site's
@@ -47,12 +48,11 @@ charts, no free layout.
 
 ## Storage and privacy
 
-- `stats` and `ranking` hold no personal data: they are stored with the
-  answer (as `sources` are) and redrawn on reload, labelled with the time
-  they were read.
-- `leads` holds names, so it is **not stored**, like cards: a reloaded answer
-  shows its text and a line that the list is not kept, ask again for a fresh
-  one. A customer's erasure therefore never has to reach into old answers.
+No block is stored with the answer, like cards: a reloaded conversation
+shows the answer's text, which is written to read on its own. This keeps
+names out of stored answers (a customer's erasure never has to reach into
+them) and needs no new column. Storing `stats` and `ranking`, which hold no
+personal data, can come later if people miss them.
 
 ## Wire
 
@@ -69,12 +69,12 @@ columns (name, stage) and `stats` wraps to two tiles a row.
 
 ## Work
 
-1. **Backend and contract (one PR):** the `blocks` part and `AiBlock`
-   schemas; the per-turn read cache; `showBlock` and its builders for the
-   three kinds; prompt lines; storage of `stats` and `ranking`; tests for
-   every refusal (unknown `from`, wrong kind, caps, no contact access).
-2. **Admin (one PR):** `AnswerBlocks` with the three components, light and
-   dark, panel and page widths; the "list not kept" line on reload; tests.
+1. **Backend and contract:** the `blocks` part and `AiBlock` schemas; the
+   per-turn read cache (`BlockRegistry`); `showBlock` and its builders for
+   the three kinds; a prompt line; tests for every refusal (no read yet, a
+   failed read, a wrong pairing, a third block).
+2. **Admin:** `AnswerBlocks` with the three components, light and dark,
+   panel and page widths (container queries); tests.
 3. **Check:** re-run the model test's lookup and reasoning prompts to see
    that models use blocks only where they help.
 
